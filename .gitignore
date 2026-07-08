@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+app.zip
+local.settings.json
+.DS_Store
