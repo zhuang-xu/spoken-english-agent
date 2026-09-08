@@ -1,79 +1,45 @@
-from datetime import datetime
-from enum import Enum
-from typing import Any, Literal
+"""Only the input and output data needed to start a practice session."""
+from typing import Literal
 
-from pydantic import BaseModel, Field
-
-
-class Speaker(str, Enum):
-    user = "user"
-    assistant = "assistant"
-
-
-class SessionStatus(str, Enum):
-    active = "active"
-    completed = "completed"
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class SessionCreate(BaseModel):
-    speaking_goal: str = Field(..., min_length=2, examples=["Interview practice"])
-    level: str = Field(..., min_length=2, examples=["B1"])
-    preferred_topic: str = Field(..., min_length=2, examples=["product design"])
-    session_duration_minutes: int = Field(..., ge=1, le=120, examples=[15])
+    """The four preferences supplied by the learner, before a session exists."""
 
-
-class SessionPlan(BaseModel):
-    topic: str
-    opening_question: str
-    follow_up_strategy: list[str]
-    target_expressions: list[str]
-    evaluation_rubric: dict[str, str]
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    speaking_goal: str = Field(min_length=2, max_length=500)
+    level: str = Field(min_length=2, max_length=50)
+    preferred_topic: str = Field(min_length=2, max_length=200)
+    session_duration_minutes: int = Field(ge=1, le=120, strict=True)
 
 
 class Session(BaseModel):
+    """The successfully created application session returned to the learner."""
+
     id: str
-    status: SessionStatus
-    created_at: datetime
+    status: Literal["active"] = "active"
+    created_at: AwareDatetime
     preferences: SessionCreate
-    plan: SessionPlan
+
+
+class RealtimeClientCredential(BaseModel):
+    """A short-lived connection token; never saved in our database."""
+
+    value: str = Field(min_length=1, repr=False)
+    expires_at: AwareDatetime
+
+
+class RealtimeSession(BaseModel):
+    """Provider connection information returned with the credential."""
+
+    provider_session_id: str = Field(min_length=1)
+    client_credential: RealtimeClientCredential
+    webrtc_url: str = Field(min_length=1)
 
 
 class CreateSessionResponse(BaseModel):
+    """The complete POST /sessions response: our session plus connection details."""
+
     session: Session
-    assistant_response: str
-
-
-class TurnRequest(BaseModel):
-    transcript: str | None = Field(default=None, min_length=1)
-    return_audio: bool = False
-
-
-class TurnResponse(BaseModel):
-    session_id: str
-    user_transcript: str
-    assistant_response: str
-    coaching_note: str | None = None
-    audio_base64: str | None = None
-
-
-class TranscriptItem(BaseModel):
-    speaker: Speaker
-    text: str
-    created_at: datetime
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class Evaluation(BaseModel):
-    fluency_feedback: str
-    grammar_feedback: str
-    vocabulary_feedback: str
-    pronunciation_pace_feedback: str | None = None
-    top_3_issues: list[str]
-    next_practice_suggestion: str
-
-
-class EndSessionResponse(BaseModel):
-    session_id: str
-    status: Literal["completed"]
-    transcript: list[TranscriptItem]
-    evaluation: Evaluation
+    realtime: RealtimeSession
