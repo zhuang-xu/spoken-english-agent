@@ -1,7 +1,7 @@
-# Spoken English Agent — Session Start
+# Spoken English Agent — Session Start and Learner Inputs
 
-This project currently implements **POST /sessions** and **GET /health** only.
-Recording uploads, transcript events, evaluation, and session ending are deferred.
+This project implements session creation, health, learner audio/transcript uploads, and agent transcript uploads.
+Evaluation, session ending, and browser capture remain deferred.
 
 ## Run
 
@@ -32,9 +32,9 @@ a credential does not itself open a conversation or play an opening question.
 After connecting, the client can send `response.create` to request the opening.
 Duration is a practice preference, not an enforced timer.
 
-## Six classes, all data
+## Data models
 
-All six classes declare zero custom methods; Pydantic supplies validation and
+The data classes declare zero custom methods; Pydantic supplies validation and
 serialization. Application behavior lives in ordinary functions.
 
 | Class | What it represents | Why it exists |
@@ -45,6 +45,8 @@ serialization. Application behavior lives in ordinary functions.
 | `RealtimeClientCredential` | Temporary token and expiry | Makes the client connection data explicit. |
 | `RealtimeSession` | Provider ID and credential | Keeps provider connection details together. |
 | `CreateSessionResponse` | Session plus Realtime details | Defines exactly what the endpoint returns. |
+| `LearnerTranscript` | Final learner text and timing | Validates transcript uploads. |
+| `LearnerInputReceipt` | Input receipt flags | Reports which components have been stored. |
 
 `SessionCreate` is input: the learner cannot supply a session ID or status.
 `Session` is output: the server adds those fields after creation succeeds.
@@ -125,7 +127,7 @@ not shared between instances. Use durable database storage before production.
 After deploying, check:
 
 - Without a function key: `/health` returns 401.
-- With a function key: `/health` returns 200 and `/openapi.json` lists the two routes.
+- With a function key: `/health` returns 200 and `/openapi.json` lists the session, health, learner-input, and agent-transcript routes.
 - `POST /sessions` with `{}` returns 422.
 - With Azure OpenAI configured, valid session preferences return 201 and an expiring
   credential. Without the Azure configuration, the expected response is 503.
@@ -147,3 +149,87 @@ Shared test fixtures live in `tests/conftest.py`. `tests/test_realtime.py` check
 Azure URLs, resource-key authentication, deployment names, and trailing slashes.
 `tests/test_session_creation.py` checks the route, database workflow, and failures.
 All automated tests mock provider HTTP; real Azure checks are run separately.
+
+
+## Capture learner audio and transcript
+
+After creating a session, the browser generates one UUID per learner utterance.
+Use that same `turn_id` for the recording and its finalized transcript, even if
+transcription arrives later. Maintain a mapping to the provider item ID on the
+client; do not pair asynchronous events solely by arrival time.
+
+Upload audio as raw bytes (not multipart or base64):
+
+```bash
+curl -X PUT "http://127.0.0.1:8000/sessions/$SESSION_ID/learner-turns/$TURN_ID/audio" \
+  -H 'Content-Type: audio/webm;codecs=opus' --data-binary @learner.webm
+```
+
+Upload the finalized learner transcript separately:
+
+```bash
+curl -X PUT "http://127.0.0.1:8000/sessions/$SESSION_ID/learner-turns/$TURN_ID/transcript" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"I built an application.","start_ms":1000,"end_ms":3500,"provider_item_id":"item_learner_1"}'
+```
+
+Offsets are milliseconds on the client's session recording clock, not upload times.
+Only send finalized text. Both routes return receipt flags, for example:
+
+```json
+{"session_id":"...","turn_id":"...","audio_received":true,"transcript_received":true}
+```
+
+New components return 201; identical normalized retries return 200; replacements
+return 409. Retain pending uploads on the client until acknowledged. Audio and
+transcripts may arrive in either order. Supported audio types: WebM, Ogg, WAV, MP4,
+and MPEG, declared with the corresponding `audio/*` MIME type. The limit is 10 MiB
+per recording; transcript text is limited to 20000 characters. Bytes are stored
+without decoding or validating the audio format. See the
+[learner-input contract](docs/todo-learner-inputs-api-contract.md) for all errors.
+
+No new environment settings or dependencies are needed. `DATABASE_PATH` now stores
+learner audio BLOBs as well as transcripts and metadata. This is a local MVP storage
+choice, not durable cloud audio storage. Receipt flags confirm storage only.
+
+These endpoints do not record the microphone, generate transcripts, or configure
+Realtime input transcription. The client must capture audio and obtain finalized
+learner text from its transcription source. Realtime transcription configuration
+and browser integration remain a separate step. Agent transcripts use the separate endpoint below.
+Hosted uploads require the existing `x-functions-key` header; per-user ownership,
+retention/deletion, total storage quotas, and public-use authentication are deferred.
+
+
+## Capture conversation agent transcripts
+
+Send finalized generated text using:
+
+`PUT /sessions/{session_id}/agent-items/{item_id}/transcripts/{content_index}`
+
+```json
+{
+  "text": "What did you build?",
+  "response_id": "resp_1",
+  "previous_item_id": "learner_1",
+  "playback_status": "completed",
+  "start_ms": 4000,
+  "end_ms": 5500
+}
+```
+
+The browser supplies the provider item ID, response ID, and content index. Supply
+`previous_item_id` from conversation item metadata if available; it is not inferred
+from upload order. Playback offsets use the same session clock as learner audio.
+Omit offsets and leave playback_status as `unknown` if playback wasn't tracked.
+Generated text may include speech the user did not hear after an interruption.
+
+Use `interrupted` for interrupted playback. Wait until playback metadata is final
+before submitting it: identical retries return 200, but changing a stored part
+returns 409. Separate content indices preserve multiple parts within one item.
+New parts return 201 with a receipt; text is stored in SQLite, not echoed back.
+No new dependencies or settings are needed.
+
+This backend does not subscribe to WebRTC events. Browser event collection and an
+ordered conversation retrieval endpoint remain unimplemented. See the dedicated
+[agent-transcript contract](docs/todo-agent-transcripts-api-contract.md) for validation,
+ordering limitations, and acceptance tests.

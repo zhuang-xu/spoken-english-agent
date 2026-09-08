@@ -65,4 +65,6 @@ These checks did not establish a browser WebRTC connection.
 - [ ] Credential refresh/reconnection and provider call ID correlation.
 - [ ] Choose durable deployment storage; SQLite here is for local development.
 
-Recording, evaluation, and session ending are outside this implementation.
+Evaluation and session ending remain outside this implementation. Learner recording
+uploads and finalized transcript storage are specified in the separate
+[learner-input contract](todo-learner-inputs-api-contract.md).

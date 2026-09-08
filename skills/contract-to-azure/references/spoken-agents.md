@@ -6,9 +6,16 @@ outside the repository, so resolve them against the active workspace.
 
 ## Contract and implementation
 
-The existing contract is `docs/todo-sessions-api-contract.md`, not `todo-contract.md`.
-It describes `POST /sessions`; `GET /health` is the other implemented route.
-Recording, evaluation, session ending, browser UI, and reconnection are deferred.
+Contracts are maintained per feature under `docs/`:
+
+- `docs/todo-sessions-api-contract.md`: session creation (`POST /sessions`).
+- `docs/todo-learner-inputs-api-contract.md`: learner audio and finalized transcript
+  uploads, linked by session and turn ID.
+
+Update the matching feature file; create a separate file for each new feature.
+Learner input capture was implemented locally on 2026-09-08 with 62 passing tests.
+Agent transcripts, evaluation, session ending, browser UI, and reconnection remain
+deferred. The session and deployment history below was recorded on 2026-09-07.
 
 The session request takes `speaking_goal`, `level`, `preferred_topic`, and
 `session_duration_minutes`. Strings are trimmed and length-validated; duration is
