@@ -8,12 +8,37 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import Settings
-from app.schemas import CreateSessionResponse, Session, SessionCreate
+from app.schemas import CreateSessionResponse, EndSessionResponse, HeartbeatResponse, Session, SessionCreate
 from app.services.realtime import create_realtime_session
-from app.storage.sqlite import save_creating_session, update_session
+from app.storage.sqlite import end_stored_session, heartbeat_stored_session, save_creating_session, update_session
 
 
-def create_session(request: SessionCreate, settings: Settings) -> CreateSessionResponse:
+def heartbeat_session(session_id: str, settings: Settings) -> HeartbeatResponse:
+    try:
+        outcome, last_activity_at = heartbeat_stored_session(settings.database_path, session_id)
+    except (sqlite3.Error, OSError):
+        raise HTTPException(503, "Session storage is unavailable.") from None
+    if outcome == "not_found":
+        raise HTTPException(404, "Session not found.")
+    if outcome == "inactive":
+        raise HTTPException(409, "Session is not active. Start a new session.")
+    return HeartbeatResponse(session_id=session_id, last_activity_at=last_activity_at)
+
+
+def end_session(session_id: str, settings: Settings) -> EndSessionResponse:
+    try:
+        outcome, ended_at = end_stored_session(settings.database_path, session_id)
+    except (sqlite3.Error, OSError):
+        raise HTTPException(503, "Session storage is unavailable.") from None
+    if outcome == "not_found":
+        raise HTTPException(404, "Session not found.")
+    if outcome == "inactive":
+        raise HTTPException(409, "Only active sessions can be ended.")
+    return EndSessionResponse(session_id=session_id, ended_at=ended_at)
+
+
+def create_session(request: SessionCreate, settings: Settings,
+                   idempotency_key: str | None = None) -> CreateSessionResponse:
     try:
         endpoint = urlsplit(settings.azure_openai_endpoint)
     except ValueError:
@@ -27,9 +52,18 @@ def create_session(request: SessionCreate, settings: Settings) -> CreateSessionR
 
     session = Session(id=str(uuid4()), created_at=datetime.now(timezone.utc), preferences=request)
     try:
-        save_creating_session(settings.database_path, session)
+        reservation = save_creating_session(settings.database_path, session, idempotency_key)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
+
+    if reservation is not None:
+        outcome, previous = reservation
+        if outcome == "conflict":
+            raise HTTPException(409, "Idempotency-Key was already used with different preferences.")
+        if previous.status == "creating":
+            raise HTTPException(409, "Session creation is in progress. Retry with the same key.",
+                                headers={"Retry-After": "2"})
+        return CreateSessionResponse(session=previous, realtime=None)
 
     try:
         realtime = create_realtime_session(request, settings)

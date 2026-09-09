@@ -1,7 +1,8 @@
 # Spoken English Agent — Session Start and Learner Inputs
 
-This project implements session creation, health, learner audio/transcript uploads, and agent transcript uploads.
-Evaluation, session ending, and browser capture remain deferred.
+This project implements session creation, a browser WebRTC client, health, learner
+audio/transcript uploads, and agent transcript uploads. Session ending is also implemented. Evaluation and browser recording/upload
+integration remain deferred.
 
 ## Run
 
@@ -15,6 +16,23 @@ uvicorn app.main:app --reload
 ```
 
 Use Python 3.11 with these pinned dependencies.
+
+Open [the practice page](http://127.0.0.1:8000/practice), enter your preferences,
+and click **Start conversation**. Allow the microphone; the client creates a session,
+POSTs its SDP offer directly to the returned Azure `realtime.webrtc_url`, applies
+the SDP answer, and requests the opening question. Replies play through the audio
+element. If autoplay is blocked, use its Play control. **Disconnect** stops the
+microphone and closes WebRTC, including during setup.
+
+Use localhost or HTTPS. This same-origin client is ready for local Uvicorn use.
+Azure Functions retains FUNCTION protection on the page and all assets: hosted
+browser use requires an authenticated same-origin gateway that supplies the
+function key for backend requests. Do not put that key into browser source or URLs.
+No new environment variables or runtime packages are required.
+
+The browser implementation is in `app/static/realtime.mjs`; look for the
+`fetchImpl(url.href, ...)` call for the direct SDP POST. `practice.mjs` binds the
+form and status display. See the [browser WebRTC contract](docs/todo-browser-webrtc-api-contract.md).
 
 Open `/docs` for the interactive API reference. The configured Realtime deployment must
 exist in your Azure OpenAI resource. No real provider call is made by the tests.
@@ -84,16 +102,21 @@ The new `practice_sessions` table does not modify older tables in an existing da
   explicitly logged, and provider error details are not exposed to the client.
 - Provider failure marks the row failed. If activation fails, the token is withheld
   and expires after 60 seconds; marking the row failed is best effort during a
-  storage outage. A process crash may leave a creating row; recovery is deferred.
+  storage outage. A process crash may leave a creating row; the scheduled cleanup marks stale creating rows failed.
 - `active` means connection credentials are ready, not that WebRTC is connected.
-- No idempotency: every retry may create a new session. No automatic retries.
+- Optional `Idempotency-Key` prevents duplicate starts; keyed replays return the
+  existing session with `realtime: null`. No automatic credential refresh.
 - Authentication and rate limiting are not implemented; this is a local-development API.
-- There is no browser client, credential refresh endpoint, or enforced session timer yet.
+- The browser supports one call at a time, opening speech, safe error messages,
+  final AI speech text, a setup timeout, and explicit reconnect via a new Start.
+  It does not refresh credentials, enforce duration, or upload audio/transcripts.
+  Disconnect does not change the backend session row.
 
 ## Tests
 
 ```bash
 python -m pytest -q
+node --test tests/browser/realtime.test.mjs
 ```
 
 Tests exercise the real route, workflow, response parsing, and temporary SQLite
@@ -107,7 +130,8 @@ Provider reference: [Azure OpenAI Realtime WebRTC guide](https://learn.microsoft
 The existing Function App is `spoken-agent-func-4fa2534c` in resource group
 `spoken-agents-rg`, running managed Python 3.11. Deploy the Python source,
 `function_app.py`, `host.json`, and `requirements.txt` with a remote build. Do not
-package `.env`, virtual environments, tests, or local databases.
+package `.env`, virtual environments, tests, or local databases. Include
+`app/static/` in source archives so the practice page and its assets are available.
 
 Azure installs requirements on Linux. The Functions host loads `function_app.py`,
 whose ASGI adapter forwards HTTP requests to the FastAPI app in `app/main.py`.
@@ -233,3 +257,82 @@ This backend does not subscribe to WebRTC events. Browser event collection and a
 ordered conversation retrieval endpoint remain unimplemented. See the dedicated
 [agent-transcript contract](docs/todo-agent-transcripts-api-contract.md) for validation,
 ordering limitations, and acceptance tests.
+
+## End a session
+
+`POST /sessions/{session_id}/end` requires no request body. It returns 200:
+
+```json
+{"session_id":"...","status":"ended","ended_at":"2026-09-09T10:00:00Z"}
+```
+
+The server records the first end time in UTC. Repeated or concurrent requests
+return the same timestamp. Unknown sessions return 404, creating or failed sessions
+return 409, invalid UUIDs return 422, and storage failures return 503. Successful
+responses include `Cache-Control: no-store`. Existing SQLite databases gain lifecycle columns transactionally as sessions are
+created, updated, or checked by cleanup.
+
+Late learner audio, learner transcripts, and agent transcripts remain accepted after
+ending, with the same immutable-upload and retry rules. Ending does not guarantee
+all uploads have arrived or trigger evaluation. There is no late-upload deadline yet.
+The browser must close its WebRTC connection separately; this endpoint records
+application state and does not contact Azure. Hosted requests require the existing
+function-key authentication. The practice page does not call this endpoint yet.
+
+## Heartbeats and inactivity cleanup
+
+`POST /sessions/{session_id}/heartbeat` requires no body and returns 200:
+
+```json
+{"session_id":"...","status":"active","last_activity_at":"2026-09-09T10:00:00Z"}
+```
+
+The client should send a heartbeat every 30 seconds while connected. Unknown sessions
+return 404; creating, failed, or ended sessions return 409; invalid UUIDs return 422;
+storage failures return 503. Successful responses include `Cache-Control: no-store`.
+On 409, close the old WebRTC connection and start a new session. Browser heartbeat
+sending is not integrated yet; this change implements the backend only.
+
+Session activation, heartbeats, and successful uploads (including identical retries)
+refresh `last_activity_at` using server UTC time. Invalid or conflicting uploads do
+not refresh activity. Late uploads to ended sessions remain accepted but never
+change their activity, end timestamp, or end reason.
+
+`function_app.py` registers an Azure Functions timer every minute. It atomically ends
+active sessions with no activity for at least five minutes, storing the cleanup time
+as `ended_at` and `inactivity_timeout` as `end_reason`. Normal `/end` requests store
+`client_requested`; retries preserve the original reason. Heartbeats and cleanup
+serialize: activity committed before cleanup protects the session; a heartbeat
+after cleanup returns 409. Normal scheduling means expiration happens approximately
+five to six minutes after the last activity, and can be later if the scheduler stalls.
+The timer also marks creating sessions older than five minutes failed; already
+failed sessions are unchanged.
+
+The Azure timer requires a configured `AzureWebJobsStorage` connection for scheduling.
+Run the Functions host to execute it locally; plain Uvicorn does not run timer triggers.
+For a one-off local cleanup with the configured database:
+
+```bash
+python -c 'from app.config import get_settings; from app.storage.sqlite import expire_inactive_sessions; print(expire_inactive_sessions(get_settings().database_path))'
+```
+
+A scheduled run can only clean sessions visible in its database. The current hosted
+`/tmp` SQLite database is not shared between Azure instances: reliable hosted cleanup
+requires shared durable storage. Ending the database row does not disconnect Azure
+Realtime or stop its audio stream.
+
+## Start recovery and upload completeness
+
+Session starts now accept an optional `Idempotency-Key`. Same-key retries identify
+the existing session without calling Azure again. Credentials are not replayed: a
+200 replay has `realtime: null`, and a fresh connection needs an explicit new key.
+The timer also recovers abandoned creating rows and prevents late activation.
+
+After ending, submit the final expected upload IDs to
+`PUT /sessions/{session_id}/upload-manifest`. Read
+`GET /sessions/{session_id}/data-status` to see missing/unexpected components and
+`ready_for_evaluation`. Ending alone never means uploads are complete.
+
+See [the recovery and completeness contract](docs/session-recovery-and-completeness.md)
+for response formats, retry/reconnection behavior, limits, and readiness semantics.
+Browser integration, evaluation execution, and hosted deployment are not included.

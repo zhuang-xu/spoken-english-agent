@@ -1,5 +1,6 @@
 """Only the input and output data needed to start a practice session."""
 from typing import Literal
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -18,7 +19,7 @@ class Session(BaseModel):
     """The successfully created application session returned to the learner."""
 
     id: str
-    status: Literal["active"] = "active"
+    status: Literal["creating", "active", "failed", "ended"] = "active"
     created_at: AwareDatetime
     preferences: SessionCreate
 
@@ -42,7 +43,19 @@ class CreateSessionResponse(BaseModel):
     """The complete POST /sessions response: our session plus connection details."""
 
     session: Session
-    realtime: RealtimeSession
+    realtime: RealtimeSession | None
+
+
+class EndSessionResponse(BaseModel):
+    session_id: str
+    status: Literal["ended"] = "ended"
+    ended_at: AwareDatetime
+
+
+class HeartbeatResponse(BaseModel):
+    session_id: str
+    status: Literal["active"] = "active"
+    last_activity_at: AwareDatetime
 
 
 class LearnerTranscript(BaseModel):
@@ -80,3 +93,34 @@ class AgentTranscriptReceipt(BaseModel):
     item_id: str
     content_index: int
     transcript_received: Literal[True] = True
+
+
+class AgentPartReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$")
+    content_index: int = Field(ge=0, strict=True)
+
+
+class UploadInventory(BaseModel):
+    """Component identities in a stored-data snapshot."""
+    audio_turn_ids: list[UUID]
+    transcript_turn_ids: list[UUID]
+    agent_transcripts: list[AgentPartReference]
+
+
+class UploadManifest(UploadInventory):
+    """The client's final inventory of expected components, including not-yet-uploaded ones."""
+    model_config = ConfigDict(extra="forbid")
+    audio_turn_ids: list[UUID] = Field(max_length=1000)
+    transcript_turn_ids: list[UUID] = Field(max_length=1000)
+    agent_transcripts: list[AgentPartReference] = Field(max_length=1000)
+
+
+class SessionDataStatus(BaseModel):
+    session_id: str
+    session_status: Literal["creating", "active", "failed", "ended"]
+    manifest_received: bool
+    data_complete: bool
+    ready_for_evaluation: bool
+    missing: UploadInventory
+    unexpected: UploadInventory
