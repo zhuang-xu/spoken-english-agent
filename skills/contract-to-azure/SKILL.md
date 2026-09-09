@@ -120,8 +120,13 @@ working-tree changes. Do not assume all pre-existing changes belong in the relea
 
 Inspect and stage explicit in-scope paths, including contract, implementation,
 tests, and documentation. Check the staged diff for accidental secrets and local
-artifacts. Prefer a `codex/` branch unless the user selected a branch or repository
-conventions require otherwise. Commit with a message describing final behavior.
+artifacts. For an authorized release/upload, publish to `main` by default unless
+the user explicitly selects another branch or repository rules require a PR.
+Do not create a separate release branch merely because the user did not specify one.
+Fetch the remote before integrating the verified changes into `main`; use a
+fast-forward when possible and preserve remote work. If branch protection requires
+a PR, follow that requirement and report that `main` is pending rather than treating
+a branch push as a completed main release. Commit with a message describing final behavior.
 
 Push to the verified remote branch; do not force-push or change repository visibility.
 When a push is rejected, inspect the remote changes and resolve within scope rather
