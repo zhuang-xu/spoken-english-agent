@@ -21,10 +21,10 @@ sequenceDiagram
     Client<<->>Provider: WebRTC audio tracks and JSON data channel
 ```
 
-`app/main.py` handles HTTP. `app/services/sessions.py` coordinates the workflow.
-`app/services/realtime.py` calls Azure OpenAI. `app/storage/sqlite.py` stores session
-metadata without credentials. `app/schemas.py` defines request and response data.
-`app/config.py` loads server settings.
+`backend/app/main.py` handles HTTP. `backend/app/services/sessions.py` coordinates the workflow.
+`backend/app/services/realtime.py` calls Azure OpenAI. `backend/app/storage/sqlite.py` stores session
+metadata without credentials. `backend/app/schemas.py` defines request and response data.
+`backend/app/config.py` loads server settings.
 
 A provider failure marks the application session failed. Activation failure withholds
 the credential; the token expires after 60 seconds. Database failure or a process
@@ -34,11 +34,11 @@ The client establishes the actual live connection after credential creation.
 An active application row means that the credential was prepared successfully.
 The provider ID returned here is from credential configuration, not a WebRTC call ID.
 
-`GET /practice` serves the browser form. `app/static/practice.mjs` binds its controls;
-`app/static/realtime.mjs` manages microphone permission, SDP negotiation, playback,
+`backend/web_app.py` optionally serves the browser form at `GET /practice`. `browser/public/practice.mjs` binds its controls;
+`browser/public/realtime.mjs` manages microphone permission, SDP negotiation, playback,
 events, and cleanup. Audio flows directly to Azure. Disconnect stops local media
 without changing stored session status. See the
-[browser contract](todo-browser-webrtc-api-contract.md) for lifecycle and tests.
+[browser contract](browser-webrtc-api-contract.md) for lifecycle and tests.
 
 ## Deferred features
 
@@ -49,8 +49,8 @@ classes have been removed. Per-user authentication, rate limiting, and browser r
 
 ## Learner input storage
 
-The two PUT routes in `app/main.py` accept a complete audio body or a finalized
-learner transcript. `app/services/learner_inputs.py` maps persistence outcomes to
+The two PUT routes in `backend/app/main.py` accept a complete audio body or a finalized
+learner transcript. `backend/app/services/learner_inputs.py` maps persistence outcomes to
 HTTP receipts/errors. `store_learner_input()` uses a SQLite transaction with an
 immediate write lock to prevent concurrent uploads from losing components or
 creating duplicates. A failure rolls back the entire component write.
@@ -62,12 +62,14 @@ to 10 MiB while reading the request; SQLite work runs off the async event loop.
 
 The browser must record learner microphone audio and forward finalized learner
 text with a stable turn ID. Audio and transcript can arrive independently. There
-is no evaluation worker or browser integration for these uploads yet.
+is no background evaluation worker or browser integration for these uploads yet.
+Transcript evaluation is available through synchronous POST/GET evaluation routes;
+see [the evaluation contract](evaluation-api-contract.md).
 
 
 ## Agent transcript storage
 
-`app/services/agent_transcripts.py` validates playback metadata and coordinates
+`backend/app/services/agent_transcripts.py` validates playback metadata and coordinates
 `store_agent_transcript()`. The additive `agent_transcripts` table stores immutable
 content parts under `(session_id, item_id, content_index)`. SQLite serializes writes
 so duplicate concurrent uploads produce one row. Learner tables remain unchanged.
@@ -75,7 +77,7 @@ so duplicate concurrent uploads produce one row. Learner tables remain unchanged
 Provider predecessor IDs and optional client playback offsets retain ordering
 context. Server receipt time is not chronological turn order. Ingestion accepts
 missing predecessors; resolving the complete conversation remains future work.
-See [the agent-transcript contract](todo-agent-transcripts-api-contract.md).
+See [the agent-transcript contract](agent-transcripts-api-contract.md).
 
 ## Session ending
 
@@ -109,8 +111,32 @@ replays read the current session and return no credential; creating replays retu
 a retryable conflict. State transitions out of creating are conditional so stale
 creation cleanup cannot be undone by a delayed provider response.
 
-`app/storage/completeness.py` compares an immutable final upload manifest with a
+`backend/app/storage/completeness.py` compares an immutable final upload manifest with a
 transactional snapshot of received learner components and agent content parts.
-`app/services/completeness.py` normalizes manifests and maps storage outcomes to
+`backend/app/services/completeness.py` normalizes manifests and maps storage outcomes to
 HTTP errors. Readiness is derived, not a permanent flag; late undeclared input makes
 it false again. See [the contract](session-recovery-and-completeness.md).
+
+## Client boundaries
+
+`backend/app/main.py` contains only the shared API. Browser files and their JavaScript
+tests live in `browser/public/` and `browser/tests/`. The optional `backend/web_app.py`
+wrapper serves those assets and mounts the API at `/`; omitting assets leaves the
+API available. Azure uses that wrapper to preserve the existing optional practice
+page. A future client in `mobile/` calls the same HTTP endpoints.
+
+Python tests live in `backend/tests/`; root `pytest.ini` makes `app` imports resolve
+from `backend/`. The packaging script preserves Azure's required archive-root layout.
+
+
+## Speech assessment
+
+The evaluation workflow snapshots audio hashes alongside transcripts. It calls
+`services/pronunciation.py` to decode the referenced learner recordings and obtain
+Azure Speech scores, then calls Azure OpenAI with transcript context and a bounded
+summary of those findings. The text evaluator integrates that evidence with the
+transcript into one coaching report. `services/speech_worker.py` isolates continuous Speech
+SDK recognition in a process with a parent-enforced timeout. Per-turn results are
+cached in `speech_assessments`; final results retain the evaluation attempt fence.
+Speech credentials are independent of Azure OpenAI. See the
+[pronunciation contract](pronunciation-api-contract.md) for limits and coverage.

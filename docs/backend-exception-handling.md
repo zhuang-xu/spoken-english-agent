@@ -210,11 +210,11 @@ per-user authentication or session ownership enforcement.
 
 ## Implementation and verification references
 
-- [Session service](../app/services/sessions.py): configuration, provider errors, keyed retries, heartbeats, ending.
-- [SQLite storage](../app/storage/sqlite.py): atomic state changes, key reservation, uploads, migrations, cleanup.
-- [Completeness service](../app/services/completeness.py) and [storage](../app/storage/completeness.py): final inventory and readiness.
-- [API routes](../app/main.py) and [schemas](../app/schemas.py): request validation and response contracts.
-- [Azure Functions entry point](../function_app.py): scheduled cleanup.
+- [Session service](../backend/app/services/sessions.py): configuration, provider errors, keyed retries, heartbeats, ending.
+- [SQLite storage](../backend/app/storage/sqlite.py): atomic state changes, key reservation, uploads, migrations, cleanup.
+- [Completeness service](../backend/app/services/completeness.py) and [storage](../backend/app/storage/completeness.py): final inventory and readiness.
+- [API routes](../backend/app/main.py) and [schemas](../backend/app/schemas.py): request validation and response contracts.
+- [Azure Functions entry point](../backend/function_app.py): scheduled cleanup.
 - [Recovery and completeness contract](session-recovery-and-completeness.md): client request/response examples.
 
 The latest backend run before this documentation change passed 127 tests. Relevant

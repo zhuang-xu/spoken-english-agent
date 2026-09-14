@@ -8,8 +8,8 @@ outside the repository, so resolve them against the active workspace.
 
 Contracts are maintained per feature under `docs/`:
 
-- `docs/todo-sessions-api-contract.md`: session creation (`POST /sessions`).
-- `docs/todo-learner-inputs-api-contract.md`: learner audio and finalized transcript
+- `docs/sessions-api-contract.md`: session creation (`POST /sessions`).
+- `docs/learner-inputs-api-contract.md`: learner audio and finalized transcript
   uploads, linked by session and turn ID.
 
 Update the matching feature file; create a separate file for each new feature.
@@ -36,14 +36,14 @@ Active means credentials ready, not an established voice connection.
 
 | File | Responsibility |
 |---|---|
-| `app/schemas.py` | Request and response validation |
-| `app/main.py` | FastAPI routes and JSON requirement |
-| `app/services/sessions.py` | Session workflow and failure handling |
-| `app/services/realtime.py` | Azure OpenAI HTTP request and response parsing |
-| `app/storage/sqlite.py` | Session persistence |
-| `app/config.py` | Environment settings |
-| `function_app.py` | Azure Functions ASGI adapter with FUNCTION authorization |
-| `host.json` | Empty route prefix; routes do not start with `/api` |
+| `backend/app/schemas.py` | Request and response validation |
+| `backend/app/main.py` | FastAPI routes and JSON requirement |
+| `backend/app/services/sessions.py` | Session workflow and failure handling |
+| `backend/app/services/realtime.py` | Azure OpenAI HTTP request and response parsing |
+| `backend/app/storage/sqlite.py` | Session persistence |
+| `backend/app/config.py` | Environment settings |
+| `backend/function_app.py` | Azure Functions ASGI adapter with FUNCTION authorization |
+| `backend/host.json` | Empty route prefix; routes do not start with `/api` |
 
 The service initially called OpenAI directly, then migrated to Azure OpenAI.
 Current settings: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`,
@@ -55,16 +55,16 @@ the returned `realtime.webrtc_url` ends in `/openai/v1/realtime/calls`.
 
 ## Test evolution and evidence
 
-Session tests originally lived in `tests/test_api.py`. They were split and shared
+Session tests originally lived in `backend/tests/test_api.py`. They were split and shared
 setup was extracted for reuse:
 
-- `tests/conftest.py`: settings, temporary SQLite, fake response,
+- `backend/tests/conftest.py`: settings, temporary SQLite, fake response,
   `mock_openai_post`, and API client fixtures.
-- `tests/test_session_creation.py`: session behavior, state transitions, validation,
+- `backend/tests/test_session_creation.py`: session behavior, state transitions, validation,
   provider/storage errors, and missing or invalid Azure settings.
-- `tests/test_realtime.py`: Azure URL, key header, deployment name, timeout, and
+- `backend/tests/test_realtime.py`: Azure URL, key header, deployment name, timeout, and
   trailing-slash handling. Reuses the mock without a database workflow.
-- `tests/test_api.py`: health and documented routes.
+- `backend/tests/test_api.py`: health and documented routes.
 
 The local `.venv` used Python 3.14, so verification used a separate Python 3.11
 environment. The historical temporary path was `/private/tmp/spoken-agents-tests-311`;
@@ -99,3 +99,15 @@ Configured remote: `git@github.com:zhuang-xu/spoken-english-agent-mvp.git`.
 The conversation did not include a completed commit/push. GitHub upload is a future
 release stage, not historical evidence. Verify the branch, working tree, and remote
 before publication; the workspace contains pre-existing modifications and deletions.
+
+## Repository layout (updated 2026-09-09)
+
+Run Python tests from the repository root; `pytest.ini` adds `backend/` to the import
+path. Backend source, requirements, Azure configuration, and Python tests live in
+`backend/`. Browser source is in `browser/public/` and JavaScript tests are in
+`browser/tests/`. `mobile/` is reserved for a future client.
+
+Use `python scripts/package_backend.py /tmp/spoken-agents.zip --include-browser`
+from the repository root for a package preserving the practice page, or omit the
+flag for the API only. The script places Azure entry points and `app/` at the ZIP
+root. Do not ZIP the repository root or assume the older root file layout.

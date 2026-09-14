@@ -15,14 +15,19 @@ and test results as history, and recheck current state before acting.
 
 ## 1. Write or update the contract
 
-Keep one separate Markdown contract/to-do file per feature under `docs/`. Before
+Keep one separate Markdown API contract file per feature under `docs/`. Before
 creating a file, look for an existing contract for that same feature and update it.
-For a new feature, create `docs/todo-<feature>-api-contract.md`; do not append it to
-another feature's contract or a shared `todo-contract.md`. A feature may cover
+For a new feature, create `docs/<feature>-api-contract.md`; do not append it to
+another feature's contract or a shared `contract.md`. A feature may cover
 multiple related endpoints (for example, learner audio and transcript capture).
 When splitting an existing combined contract, move the feature content, preserve
 its acceptance cases and verification history, and update links. Cross-reference
 related features instead of duplicating their contracts.
+
+Use stable contract filenames and Markdown link targets without the `todo-`
+prefix. Track pending, implemented, and verified work inside each contract,
+not in its filename. When renaming a contract, update all Markdown references
+and check that local links resolve.
 
 Record the feature's purpose, scope, HTTP method/path, input fields and validation,
 response shape, error status codes, storage transitions, external-provider behavior,

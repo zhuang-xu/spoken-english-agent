@@ -112,8 +112,9 @@ calculated from a consistent database snapshot:
 - Ending, registering a manifest, and reading status never fabricate missing text,
   run evaluation, or make a client declaration prove that every spoken word was captured.
 
-The browser must send the manifest and query status; integration is pending. A future
-evaluation worker must check readiness and capture its input snapshot atomically,
-rather than rely on an earlier GET response. Permanent transcription/capture failures,
-manifest corrections, partial-data evaluation policy, and evaluation jobs remain
+The browser now sends the manifest and uses its returned completeness status;
+transient save failures repeat that check automatically with bounded retries. The
+[evaluation workflow](evaluation-api-contract.md) checks readiness and
+captures its input snapshot atomically, rather than relying on an earlier GET response. Permanent transcription/capture failures,
+manifest corrections, partial-data evaluation policy, and background evaluation jobs remain
 outside this implementation; an incomplete abandoned session stays non-evaluable.

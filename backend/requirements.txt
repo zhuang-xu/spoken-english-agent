@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+azure-functions==1.23.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+pytest==8.3.4
+httpx==0.28.1
+azure-cognitiveservices-speech==1.51.2
+av==16.1.0
+azure-storage-blob==12.30.1

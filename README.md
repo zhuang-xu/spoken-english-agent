@@ -1,21 +1,31 @@
 # Spoken English Agent — Session Start and Learner Inputs
 
 This project implements session creation, a browser WebRTC client, health, learner
-audio/transcript uploads, and agent transcript uploads. Session ending is also implemented. Evaluation and browser recording/upload
-integration remain deferred.
+audio/transcript uploads, and agent transcript uploads. Session ending is also implemented. Transcript and Azure Speech evaluation are implemented locally. The browser records learner turns, uploads audio and transcripts, and displays
+transcript feedback plus pronunciation and fluency assessment.
 
 ## Run
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
+pip install -r backend/requirements.txt
+cp backend/.env.example .env
 # Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT in .env.
-uvicorn app.main:app --reload
+uvicorn web_app:app --app-dir backend --reload
 ```
 
 Use Python 3.11 with these pinned dependencies.
+
+The command above serves the API and optional browser client together. For the API
+alone (including future mobile clients), run:
+
+```bash
+uvicorn app.main:app --app-dir backend --reload
+```
+
+Run these commands from the repository root so the existing `.env` and `data/`
+locations continue to work. The ignored local `.env` and database have not moved.
 
 Open [the practice page](http://127.0.0.1:8000/practice), enter your preferences,
 and click **Start conversation**. Allow the microphone; the client creates a session,
@@ -25,14 +35,14 @@ element. If autoplay is blocked, use its Play control. **Disconnect** stops the
 microphone and closes WebRTC, including during setup.
 
 Use localhost or HTTPS. This same-origin client is ready for local Uvicorn use.
-Azure Functions retains FUNCTION protection on the page and all assets: hosted
-browser use requires an authenticated same-origin gateway that supplies the
-function key for backend requests. Do not put that key into browser source or URLs.
-No new environment variables or runtime packages are required.
+Azure Functions defaults to FUNCTION protection. The hosted browser uses Azure
+platform Microsoft sign-in and `FUNCTIONS_HTTP_AUTH_LEVEL=anonymous`, so authenticated
+browser requests do not need a Function key. Enable and verify platform sign-in
+before selecting this mode. Do not put Function keys into browser source or URLs.
 
-The browser implementation is in `app/static/realtime.mjs`; look for the
-`fetchImpl(url.href, ...)` call for the direct SDP POST. `practice.mjs` binds the
-form and status display. See the [browser WebRTC contract](docs/todo-browser-webrtc-api-contract.md).
+The browser implementation is in `browser/public/realtime.mjs`; look for the
+`fetchImpl(url.href, ...)` call for the direct SDP POST. `browser/public/session.mjs` handles transcript uploads, heartbeats, ending, manifests, and feedback. `browser/public/practice.mjs` binds the
+form and status display. See the [browser WebRTC contract](docs/browser-webrtc-api-contract.md).
 
 Open `/docs` for the interactive API reference. The configured Realtime deployment must
 exist in your Azure OpenAI resource. No real provider call is made by the tests.
@@ -79,14 +89,14 @@ calling providers and stores, but its methods were placeholders. Both are remove
 
 ## Read the code in this order
 
-1. `app/schemas.py`: input and output data.
-2. `app/main.py`: the HTTP endpoint and JSON requirement.
-3. `app/services/sessions.py`: save creating → request credential → save active → respond.
-4. `app/services/realtime.py`: the Azure OpenAI HTTP request.
-5. `app/storage/sqlite.py`: two SQLite helper functions.
-6. `app/config.py`: environment settings.
+1. `backend/app/schemas.py`: input and output data.
+2. `backend/app/main.py`: the HTTP endpoint and JSON requirement.
+3. `backend/app/services/sessions.py`: save creating → request credential → save active → respond.
+4. `backend/app/services/realtime.py`: the Azure OpenAI HTTP request.
+5. `backend/app/storage/sqlite.py`: two SQLite helper functions.
+6. `backend/app/config.py`: environment settings.
 
-`function_app.py` also exposes the app through Azure Functions. SQLite is intended
+`backend/function_app.py` also exposes the app through Azure Functions. SQLite is intended
 for local development; configure durable storage before relying on a hosted deployment.
 The new `practice_sessions` table does not modify older tables in an existing database.
 
@@ -109,37 +119,54 @@ The new `practice_sessions` table does not modify older tables in an existing da
 - Authentication and rate limiting are not implemented; this is a local-development API.
 - The browser supports one call at a time, opening speech, safe error messages,
   final AI speech text, a setup timeout, and explicit reconnect via a new Start.
-  It does not refresh credentials, enforce duration, or upload audio/transcripts.
+  It saves learner/agent transcripts, sends heartbeats, ends sessions, and requests
+  transcript feedback after a complete save. Failed saves can be retried while the
+  page remains open. It records each learner turn using Start speaking / Finish turn, uploads audio
+  under the same turn ID as its transcript, and displays speech assessment. It
+  does not refresh credentials or enforce the requested session duration.
   Disconnect does not change the backend session row.
 
 ## Tests
 
 ```bash
 python -m pytest -q
-node --test tests/browser/realtime.test.mjs
+node --test browser/tests/*.test.mjs
 ```
 
 Tests exercise the real route, workflow, response parsing, and temporary SQLite
 database, with only the provider HTTP call mocked. See
-[session-start contract](docs/todo-sessions-api-contract.md) for remaining work.
+[session-start contract](docs/sessions-api-contract.md) for remaining work.
 
 Provider reference: [Azure OpenAI Realtime WebRTC guide](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/realtime-audio-webrtc).
 
 ## Azure deployment and testing
 
 The existing Function App is `spoken-agent-func-4fa2534c` in resource group
-`spoken-agents-rg`, running managed Python 3.11. Deploy the Python source,
-`function_app.py`, `host.json`, and `requirements.txt` with a remote build. Do not
-package `.env`, virtual environments, tests, or local databases. Include
-`app/static/` in source archives so the practice page and its assets are available.
+`spoken-agents-rg`, running managed Python 3.11. Build a source ZIP from the repository
+root using the packaging script:
 
-Azure installs requirements on Linux. The Functions host loads `function_app.py`,
-whose ASGI adapter forwards HTTP requests to the FastAPI app in `app/main.py`.
-You do not start Uvicorn manually on Azure.
+```bash
+python scripts/package_backend.py /tmp/spoken-agents.zip --include-browser
+az functionapp deployment source config-zip -g spoken-agents-rg -n spoken-agent-func-4fa2534c --src /tmp/spoken-agents.zip --build-remote true
+```
 
-Hosted routes require an Azure function key (`x-functions-key` request header).
-This is a shared testing credential, not per-user authentication. Retrieve it from
-the Function App's **App keys** page; do not commit it or embed it in a public client.
+Omit `--include-browser` for an API-only deployment. The script places
+`function_app.py`, `web_app.py`, `host.json`, `requirements.txt`, and `app/` at the
+archive root as Azure expects. Optional assets are packaged as `browser/public/`.
+Only application sources and selected browser assets are included; secrets, local
+databases, virtual environments, and tests are excluded.
+
+For the Azure Functions local host, run `func start` from `backend/` with its required
+host settings configured. Plain Uvicorn does not run the cleanup timer. Azure installs
+requirements on Linux and loads the entry point; it does not start Uvicorn manually.
+
+The hosted website uses Microsoft sign-in, initially restricted to the owner's
+Azure account. Open [the hosted practice page](https://spoken-agent-func-4fa2534c.azurewebsites.net/practice).
+Azure platform authentication protects the page and API; the Function trigger uses
+`FUNCTIONS_HTTP_AUTH_LEVEL=anonymous` behind that protection. The default remains
+`function` for other deployments. Never disable platform authentication while the
+trigger is anonymous. Additional users require explicit access assignments; the
+application does not yet implement session ownership for multiple users.
 
 Configure `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and
 `AZURE_OPENAI_DEPLOYMENT` in the Function App environment variables. The endpoint
@@ -150,8 +177,8 @@ not shared between instances. Use durable database storage before production.
 
 After deploying, check:
 
-- Without a function key: `/health` returns 401.
-- With a function key: `/health` returns 200 and `/openapi.json` lists the session, health, learner-input, and agent-transcript routes.
+- Without sign-in: `/practice` and `/health` redirect to Microsoft sign-in.
+- After sign-in: `/practice`, its assets, `/health`, and `/openapi.json` return 200.
 - `POST /sessions` with `{}` returns 422.
 - With Azure OpenAI configured, valid session preferences return 201 and an expiring
   credential. Without the Azure configuration, the expected response is 503.
@@ -169,9 +196,9 @@ The returned `realtime.webrtc_url` points to this resource's `/openai/v1/realtim
 A browser authenticates there with the temporary credential, never the resource key.
 `OPENAI_API_KEY` and `REALTIME_MODEL` are no longer used by this service.
 
-Shared test fixtures live in `tests/conftest.py`. `tests/test_realtime.py` checks
+Shared test fixtures live in `backend/tests/conftest.py`. `backend/tests/test_realtime.py` checks
 Azure URLs, resource-key authentication, deployment names, and trailing slashes.
-`tests/test_session_creation.py` checks the route, database workflow, and failures.
+`backend/tests/test_session_creation.py` checks the route, database workflow, and failures.
 All automated tests mock provider HTTP; real Azure checks are run separately.
 
 
@@ -210,7 +237,7 @@ transcripts may arrive in either order. Supported audio types: WebM, Ogg, WAV, M
 and MPEG, declared with the corresponding `audio/*` MIME type. The limit is 10 MiB
 per recording; transcript text is limited to 20000 characters. Bytes are stored
 without decoding or validating the audio format. See the
-[learner-input contract](docs/todo-learner-inputs-api-contract.md) for all errors.
+[learner-input contract](docs/learner-inputs-api-contract.md) for all errors.
 
 No new environment settings or dependencies are needed. `DATABASE_PATH` now stores
 learner audio BLOBs as well as transcripts and metadata. This is a local MVP storage
@@ -219,7 +246,7 @@ choice, not durable cloud audio storage. Receipt flags confirm storage only.
 These endpoints do not record the microphone, generate transcripts, or configure
 Realtime input transcription. The client must capture audio and obtain finalized
 learner text from its transcription source. Realtime transcription configuration
-and browser integration remain a separate step. Agent transcripts use the separate endpoint below.
+and recording uploads are now enabled by the browser. Agent transcripts use the separate endpoint below.
 Hosted uploads require the existing `x-functions-key` header; per-user ownership,
 retention/deletion, total storage quotas, and public-use authentication are deferred.
 
@@ -255,7 +282,7 @@ No new dependencies or settings are needed.
 
 This backend does not subscribe to WebRTC events. Browser event collection and an
 ordered conversation retrieval endpoint remain unimplemented. See the dedicated
-[agent-transcript contract](docs/todo-agent-transcripts-api-contract.md) for validation,
+[agent-transcript contract](docs/agent-transcripts-api-contract.md) for validation,
 ordering limitations, and acceptance tests.
 
 ## End a session
@@ -298,7 +325,7 @@ refresh `last_activity_at` using server UTC time. Invalid or conflicting uploads
 not refresh activity. Late uploads to ended sessions remain accepted but never
 change their activity, end timestamp, or end reason.
 
-`function_app.py` registers an Azure Functions timer every minute. It atomically ends
+`backend/function_app.py` registers an Azure Functions timer every minute. It atomically ends
 active sessions with no activity for at least five minutes, storing the cleanup time
 as `ended_at` and `inactivity_timeout` as `end_reason`. Normal `/end` requests store
 `client_requested`; retries preserve the original reason. Heartbeats and cleanup
@@ -313,7 +340,7 @@ Run the Functions host to execute it locally; plain Uvicorn does not run timer t
 For a one-off local cleanup with the configured database:
 
 ```bash
-python -c 'from app.config import get_settings; from app.storage.sqlite import expire_inactive_sessions; print(expire_inactive_sessions(get_settings().database_path))'
+PYTHONPATH=backend python -c 'from app.config import get_settings; from app.storage.sqlite import expire_inactive_sessions; print(expire_inactive_sessions(get_settings().database_path))'
 ```
 
 A scheduled run can only clean sessions visible in its database. The current hosted
@@ -335,4 +362,173 @@ After ending, submit the final expected upload IDs to
 
 See [the recovery and completeness contract](docs/session-recovery-and-completeness.md)
 for response formats, retry/reconnection behavior, limits, and readiness semantics.
-Browser integration, evaluation execution, and hosted deployment are not included.
+The browser now submits the final audio/transcript inventory and requests evaluation once saving is complete. Evaluation is implemented locally as described below.
+
+## Repository layout
+
+```text
+backend/
+  app/                  Client-independent API, schemas, services, storage
+  tests/                Python API and optional-host integration tests
+  function_app.py        Azure HTTP adapter and cleanup timer
+  web_app.py             Optional same-origin browser hosting
+  host.json
+  requirements.txt
+  .env.example
+browser/
+  public/                HTML, CSS, and browser JavaScript
+  tests/                 JavaScript tests
+mobile/                  Reserved for a future client; no framework chosen
+docs/                    Shared API contracts and architecture
+scripts/package_backend.py
+pytest.ini               Root Python test discovery and import path
+```
+
+Browser and mobile clients use the same backend HTTP contracts. The core
+`backend/app/main.py` can run without browser files. `backend/web_app.py` optionally
+adds `/practice` and `/practice-assets` while preserving API paths and `/docs`.
+The current browser still uses relative same-origin API URLs; independently hosted
+browser deployments will need an API proxy or explicit origin/authentication setup.
+
+
+## Evaluate a completed session
+
+After ending and completing the upload manifest, call
+`POST /sessions/{session_id}/evaluation` with no body. It waits for Azure feedback
+and returns 201; repeated requests return the stored result with 200. Read status
+or feedback using `GET /sessions/{session_id}/evaluation`. The result assesses
+grammar, vocabulary and coherence using formative 1–5 scores (nullable when evidence
+is insufficient), strengths, ranked next steps and corrections linked to learner
+turns. When learner audio is included, Azure Speech also assesses pronunciation and
+spoken fluency. Audio goes to Azure Speech; Azure OpenAI receives the transcript
+context and a compact summary of measured speech findings, then combines both
+evidence sources into one coaching report.
+
+Set `AZURE_OPENAI_EVALUATION_DEPLOYMENT` to a separate deployed text model supporting
+Azure strict structured outputs. Evaluation uses the existing Azure endpoint/key
+and `/openai/v1/chat/completions`. The currently inspected resource contains only
+Realtime, so live evaluation requires a compatible text deployment. Install
+`backend/requirements.txt` to include the Speech SDK and PyAV audio decoder. The
+deployed app has passed a real-provider connectivity check; feedback quality for
+real learner speech still requires calibration.
+
+Inputs are captured atomically with readiness and saved as an immutable snapshot.
+Failed evaluations can be retried by POST; running attempts return 409 with
+`Retry-After: 5`. After five minutes a running attempt can be replaced by an explicit
+retry. Retries reuse the original snapshot and deployment; late uploads do not
+change an existing evaluation. Results remain readable without provider credentials.
+Provider errors return 502, timeouts 504, configuration/storage failures 503, and
+inputs exceeding 200,000 UTF-8 bytes return 413. This is a synchronous workflow,
+not a background job queue. A crash/retry can incur another provider charge.
+
+See [the evaluation contract](docs/evaluation-api-contract.md) for the complete
+response, error and retry semantics. The local implementation is not deployed;
+Azure hosting and GitHub publication remain separate release steps.
+
+
+## Pronunciation and spoken fluency with Azure Speech
+
+Set `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` for an Azure Speech resource.
+These are separate from the Azure OpenAI resource credentials. The existing
+`spoken-agents-rg` currently has only an OpenAI resource; no Speech resource was
+created by this implementation. Completed results and transcript-only snapshots
+remain readable without Speech configuration.
+
+The evaluation POST automatically assesses audio included in new ready-session
+snapshots. The manifest must include the learner recordings, which must already
+have been uploaded. The backend verifies each recording's hash and decodes its
+bytes into 16 kHz mono PCM. Supported decodable inputs are WAV, WebM, Ogg, MP4 and
+MPEG audio; mislabeled/corrupt media and files with multiple audio tracks are
+rejected during evaluation. The backend preserves internal pauses. Clients must
+record learner-only audio and avoid trimming pauses or mixing in agent playback.
+
+Azure Speech runs unscripted assessment in en-US. Local execution defaults to the
+continuous Speech SDK transport. Azure hosting defaults to the short-audio REST
+transport and splits longer turns into WAV chunks of at most 25 seconds. Set
+`SPEECH_ASSESSMENT_TRANSPORT=sdk` or `rest` to override transport selection. The
+response adds `speech_assessments`, with per-turn
+status, duration, and recognized segments containing 0–100 accuracy, fluency and
+optional prosody scores, word timestamps, and phoneme accuracy. Offsets are relative
+to the uploaded clip, not the session clock. Scores come from Speech; Azure OpenAI
+can explain measured findings and suggest exercises but does not replace scores.
+There is no aggregate pronunciation score for the whole conversation.
+
+Clips under three seconds, no recognized speech or fewer than five recognized
+words return `insufficient_evidence`, with a reason and no scored segments. These
+are conservative application thresholds, not validated proficiency standards.
+`not_assessed` retains pronunciation/spoken_fluency unless at least one turn has
+usable speech results. Inspect per-turn status to see actual assessment coverage.
+Existing completed evaluations are not automatically upgraded; old snapshots retain
+their original inputs and can remain transcript-only.
+
+Assessment allows ten minutes per recording and a shared 120-second wall-clock
+budget for uncached Speech processing per evaluation POST, followed by the existing
+text request. Each completed turn is cached immediately. Invalid audio returns 422;
+excessive duration 413; and missing configuration or storage returns 503. If the
+Speech provider, runtime or response fails, the report continues with transcript
+feedback and marks that turn unavailable; pronunciation and spoken fluency remain
+in `not_assessed`. SDK work runs in a child process terminated at the deadline. No
+keys are passed in command arguments, and diagnostic provider details are suppressed.
+
+Browser recording/upload integration, Azure deployment and provider connectivity
+are implemented. Quality calibration and GitHub publication remain pending. The
+hosted REST transport avoids dependence on the Function image's native Speech SDK
+libraries. See [the pronunciation contract](docs/pronunciation-api-contract.md).
+
+
+### Browser audio assessment workflow
+
+At `/practice`, start a conversation, then use **Start speaking** and **Finish turn**
+for each answer. These controls replace automatic speech segmentation on this page.
+The microphone is muted between turns. The browser records only the microphone
+stream; headphones help prevent speaker output from leaking into that microphone.
+Each turn produces one complete WebM/Opus, Ogg/Opus, or MP4 recording, depending on
+browser support. Recordings stop at two minutes and must fit the 10 MiB upload limit.
+
+**Disconnect** finishes any active recording and waits up to 16 seconds for its
+transcript before ending. Saving waits for final recorder data and uploads. Missing
+recordings or transcripts block evaluation. Transient save failures are retried
+automatically up to three times with the same UUIDs, bytes, and MIME type. If all
+attempts fail, the page displays a note explaining that feedback is unavailable for
+that session. Unsaved audio is held in memory (up to 64 MiB) until finalization;
+successful uploads release their local audio copy.
+
+**Get feedback** sends the saved audio through the existing backend Speech workflow.
+The backend needs `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, and the existing text
+evaluation configuration. Azure Speech supplies acoustic measurements and the text
+model combines them with transcript findings into one report with overall feedback,
+strengths and at most three ranked priorities. The browser hides transcripts,
+timestamps, individual word scores and phonemes; those detailed measurements remain
+available in the API response. No Speech credentials are sent to the browser.
+
+
+For an optional browser smoke test, install Playwright and its Chromium browser,
+then run `node browser/tests/audio-smoke.cjs`. It uses real MediaRecorder with a
+synthetic audio source and mocked HTTP/WebRTC, and writes a WebM plus screenshot
+to the system temporary directory. `PLAYWRIGHT_MODULE` can point to an existing
+Playwright installation, and `BROWSER_EXECUTABLE` can select an installed Chrome.
+Run `python browser/tests/verify-audio-smoke.py /tmp/spoken-browser-recording.webm`
+with the backend dependencies to verify the generated file against actual backend
+upload, duplicate retry, completeness, and audio decoding. No paid calls are made.
+
+
+## Hosted upload and feedback fix — September 13
+
+The private Azure deployment uses shared Blob-backed SQLite snapshots through
+`DATABASE_PATH=azureblob://spoken-sessions/sessions.sqlite3`. This replaces the
+instance-local `/tmp` database for new sessions. Blob leases serialize transactions
+across workers and restarts. It is intended for low-volume private use; each
+operation copies the database. See the [hosted storage contract](docs/hosted-storage-api-contract.md).
+
+**End conversation** finishes any active recording, waits for its transcript,
+saves the session, and automatically requests feedback when the manifest is
+complete. Transient failures are retried automatically up to three times before the
+page displays a persistent save-failure note. **Get feedback** remains available for
+a failed feedback request after saving succeeds. A temporary Speech failure still
+returns transcript feedback and labels speech scoring unavailable. Missing
+recordings or transcripts still block assessment.
+
+A 404 for a session now explains that the server no longer has that session.
+Starting a new conversation is required after the storage migration; the change
+cannot restore already-lost temporary sessions. Request diagnostics record route,
+status and instance without recording conversation contents or credentials.
