@@ -2,7 +2,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionCreate(BaseModel):
@@ -11,8 +11,17 @@ class SessionCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     speaking_goal: str = Field(min_length=2, max_length=500)
     level: str = Field(min_length=2, max_length=50)
-    preferred_topic: str = Field(min_length=2, max_length=200)
+    preferred_topic: str | None = Field(default=None, max_length=200)
     session_duration_minutes: int = Field(ge=1, le=120, strict=True)
+
+    @field_validator("preferred_topic")
+    @classmethod
+    def normalize_topic(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        if len(value) < 2:
+            raise ValueError("Topic must contain at least two characters")
+        return value
 
 
 class Session(BaseModel):

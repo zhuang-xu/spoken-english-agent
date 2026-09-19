@@ -11,10 +11,13 @@ const saveNote = document.querySelector("#save-note");
 const evaluate = document.querySelector("#evaluate");
 const feedback = document.querySelector("#feedback");
 function appendTranscript(text, speaker = "Partner") {
+  const following = transcripts.scrollHeight - transcripts.scrollTop - transcripts.clientHeight < 48;
   const line = document.createElement("p");
+  if (speaker !== "Partner") line.className = "learner";
   line.textContent = `${speaker}: ${text}`;
   transcripts.append(line);
-  if (transcripts.children.length > 100) transcripts.firstElementChild.remove();
+  if (following) transcripts.scrollTop = transcripts.scrollHeight;
+  latest.hidden = following;
 }
 async function finish(options) {
   if (!session || finalizing) return;
@@ -26,6 +29,7 @@ async function finish(options) {
   await session.finish(options);
   finalizing = false;
   start.disabled = fields.disabled = false;
+  evaluate.hidden = false;
   evaluate.disabled = !session.ready;
   if (session.ready && feedbackRequested) await requestFeedback();
 }
@@ -35,8 +39,34 @@ const start = document.querySelector("#start");
 const stop = document.querySelector("#stop");
 const fields = document.querySelector("#fields");
 const transcripts = document.querySelector("#transcripts");
+const latest = document.querySelector("#latest");
+const setup = document.querySelector("#setup");
+const conversation = document.querySelector("#conversation");
+const feedbackSection = document.querySelector("#feedback-section");
+const audio = document.querySelector("#reply");
+const sound = document.querySelector("#sound");
+const enableAudio = document.querySelector("#enable-audio");
+latest.addEventListener("click", () => { transcripts.scrollTop = transcripts.scrollHeight; latest.hidden = true; });
+transcripts.addEventListener("scroll", () => {
+  if (transcripts.scrollHeight - transcripts.scrollTop - transcripts.clientHeight < 48) latest.hidden = true;
+});
+sound.addEventListener("click", () => {
+  audio.muted = !audio.muted;
+  sound.textContent = audio.muted ? "Agent sound off" : "Agent sound on";
+  sound.setAttribute("aria-pressed", String(audio.muted));
+});
+enableAudio.addEventListener("click", async () => {
+  try { await audio.play(); enableAudio.hidden = true; }
+  catch { document.querySelector("#status").textContent = "Audio could not start. Try Enable agent audio again."; }
+});
+audio.addEventListener("playing", () => { enableAudio.hidden = true; });
+const controls = document.querySelector("#controls");
+new ResizeObserver(() => {
+  document.body.style.setProperty("--controls-height", `${controls.getBoundingClientRect().height + 24}px`);
+}).observe(controls);
 const call = new RealtimeCall({
-  audio: document.querySelector("#reply"),
+  audio,
+  onAudioBlocked() { enableAudio.hidden = false; },
   manualTurns: true,
   onTurnState(state) {
     turnState = state;
@@ -54,6 +84,11 @@ const call = new RealtimeCall({
     const busy = state === "connecting" || state === "connected";
     start.disabled = fields.disabled = busy || finalizing || evaluating;
     stop.disabled = !busy;
+    start.hidden = busy;
+    document.body.classList.toggle("practicing", busy);
+    sound.disabled = !busy;
+    if (!busy) enableAudio.hidden = true;
+    if (state === "error" && !session) setup.open = true;
     document.querySelector("#status").textContent = message;
   },
   onTranscript: appendTranscript,
@@ -78,10 +113,10 @@ form.addEventListener("submit", event => {
   if (finalizing || evaluating || call.attempt) return;
   const data = new FormData(form);
   const preferences = Object.fromEntries(data);
-  for (const field of ["speaking_goal", "level", "preferred_topic"]) {
+  for (const field of ["speaking_goal", "level"]) {
     preferences[field] = preferences[field].trim();
     if (preferences[field].length < 2) {
-      document.querySelector("#status").textContent = "Please enter at least two characters in each text field.";
+      document.querySelector("#status").textContent = "Please choose a speaking goal and English level.";
       return;
     }
   }
@@ -93,9 +128,18 @@ form.addEventListener("submit", event => {
   saveNote.hidden = true;
   saveNote.textContent = "";
   feedback.replaceChildren();
+  feedbackSection.hidden = true;
+  setup.open = false;
+  document.querySelector("#setup-summary").textContent = `${preferences.speaking_goal} · ${preferences.level} · ${preferences.session_duration_minutes} min`;
+  conversation.open = true;
+  document.querySelector("#transcript-heading").textContent = "Conversation transcripts";
+  latest.hidden = true;
+  enableAudio.hidden = true;
+  evaluate.hidden = true;
   evaluate.disabled = true;
   transcripts.replaceChildren();
   void call.start(preferences);
+  conversation.scrollIntoView({ block: "start" });
 });
 speak.addEventListener("click", () => {
   if (turnState === "recording") call.finishTurn();
@@ -141,6 +185,11 @@ async function requestFeedback() {
       add("p", `${correction.original} → ${correction.improved}: ${correction.explanation}`);
     }
     saveStatus.textContent = "Feedback ready.";
+    feedbackSection.hidden = false;
+    conversation.open = false;
+    document.querySelector("#transcript-heading").textContent = "Review conversation";
+    document.querySelector("#feedback-heading").focus({ preventScroll: true });
+    feedbackSection.scrollIntoView({ block: "start", behavior: "smooth" });
   } catch (error) { saveStatus.textContent = error.message; }
   finally {
     evaluating = false;

@@ -21,7 +21,8 @@ Disconnect closes local media/transport and ends the backend session row.
   `Authorization: Bearer <temporary credential>` and `Content-Type: application/sdp`.
   Apply the SDP answer using `setRemoteDescription`.
 - Data-channel open triggers one `response.create` for the opening question.
-  Remote tracks play through an audio element with manual playback controls.
+  Remote tracks play through a hidden audio element with sound on/off and an
+  explicit “Enable agent audio” button if autoplay is blocked.
   Final AI speech transcripts are displayed as plain text; raw events are not logged.
 - Surface safe messages for permission, backend HTTP errors (including existing
   415/422/502/503/504), malformed/expired credentials, SDP rejection, network errors,
@@ -182,3 +183,18 @@ conversation saves with the automatic retry policy above and then requests feedb
 If Azure Speech is temporarily unavailable, the page still renders transcript
 feedback and labels pronunciation and spoken fluency as not assessed instead of
 showing a whole-report 502.
+
+
+## Conversation controls update — 2026-09-19
+
+The practice page now keeps Start speaking / Finish turn and End & get feedback in
+a fixed bottom control bar. Setup collapses during practice. Transcripts have an
+independent scroll region; new text follows only while the reader is near the
+bottom, with Jump to latest available otherwise. Feedback opens in view after
+saving and evaluation. The audio transport is unchanged; the misleading live
+stream timeline has been replaced by sound controls.
+
+Verification: 209 backend tests and 44 browser tests passed locally. The Azure
+release was accepted under deployment ID `9abaf848-27dc-4632-b0a2-3bf6f3c2c77b`;
+the authenticated hosted page displayed the new controls. No end-to-end microphone
+conversation was run in this release check.

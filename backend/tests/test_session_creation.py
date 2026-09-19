@@ -61,7 +61,7 @@ def test_create_session(client):
     assert "ephemeral-token" not in str(rows) and "server-secret" not in response.text
 
 
-@pytest.mark.parametrize("field", list(PREFERENCES))
+@pytest.mark.parametrize("field", [key for key in PREFERENCES if key != "preferred_topic"])
 def test_missing_fields(client, field):
     api, settings = client
     body = PREFERENCES.copy()
@@ -72,7 +72,7 @@ def test_missing_fields(client, field):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("speaking_goal", " "), ("level", "A"), ("preferred_topic", " "),
+    ("speaking_goal", " "), ("level", "A"), ("preferred_topic", "x"),
     ("speaking_goal", "x" * 501), ("level", "x" * 51),
     ("preferred_topic", "x" * 201), ("session_duration_minutes", 0),
     ("session_duration_minutes", 121), ("session_duration_minutes", 1.5),
@@ -202,3 +202,18 @@ def test_missing_or_invalid_azure_configuration(client, mock_openai_post, field,
     assert response.json()["detail"] == "Azure OpenAI is not configured correctly."
     mock_openai_post.assert_not_called()
     assert not Path(settings.database_path).exists()
+
+
+@pytest.mark.parametrize("topic", [None, "", "   ", "omitted"])
+def test_agent_chooses_unspecified_topic(client, mock_openai_post, topic):
+    api, settings = client
+    preferences = {**PREFERENCES, "preferred_topic": topic}
+    if topic == "omitted":
+        del preferences["preferred_topic"]
+    response = api.post("/sessions", json=preferences)
+    assert response.status_code == 201
+    assert response.json()["session"]["preferences"]["preferred_topic"] is None
+    assert json.loads(stored(settings)[0][3])["preferred_topic"] is None
+    instructions = mock_openai_post.call_args.kwargs["json"]["session"]["instructions"]
+    assert "choose a concrete topic" in instructions
+    assert "without asking the learner to choose a topic" in instructions

@@ -8,7 +8,7 @@ h2 { font-size: 1.25rem; }
 form { background: #fff; border: 1px solid #d5dfd6; border-radius: 16px; padding: 24px; margin: 28px 0; }
 fieldset { border: 0; padding: 0; margin: 0; }
 label { display: block; font-weight: 600; margin-bottom: 16px; }
-input, textarea { display: block; width: 100%; padding: 10px 12px; border: 1px solid #81998a; border-radius: 6px; font: inherit; color: inherit; background: #fff; }
+input, textarea, select { display: block; width: 100%; padding: 10px 12px; border: 1px solid #81998a; border-radius: 6px; font: inherit; color: inherit; background: #fff; }
 textarea { min-height: 80px; resize: vertical; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid #235649; background: #235649; color: #fff; cursor: pointer; }
@@ -20,3 +20,33 @@ button:disabled { opacity: .5; cursor: default; }
 #status { font-weight: 600; }
 audio { width: 100%; }
 #transcripts p { padding: 16px; background: #fff; border-radius: 8px; overflow-wrap: anywhere; }
+
+[hidden] { display: none !important; }
+body { padding-bottom: var(--controls-height, 240px); }
+summary { cursor: pointer; font-weight: 600; }
+#setup[open] summary { margin-bottom: 20px; }
+#conversation { margin: 24px 0; }
+#transcripts { height: clamp(240px, 46dvh, 520px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 12px; border: 1px solid #d5dfd6; border-radius: 12px; }
+#transcripts .learner { background: #e6eee7; margin-left: 24px; }
+#latest { margin-top: 10px; }
+#controls { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; background: #fff; border-top: 1px solid #d5dfd6; padding: 12px 24px calc(12px + env(safe-area-inset-bottom)); box-shadow: 0 -4px 20px #183c360a; }
+.control-inner { max-width: 692px; margin: auto; }
+#controls p { margin: 0 0 6px; font-size: .875rem; }
+#controls p:empty { display: none; }
+#controls .actions { margin-top: 10px; gap: 8px; }
+.secondary { color: #235649; background: #fff; }
+#speak[aria-pressed="true"] { background: #983e30; border-color: #983e30; }
+#feedback-section { scroll-margin-top: 20px; }
+@media (max-width: 480px) {
+  main { margin-top: 24px; padding: 0 16px; }
+  form { padding: 16px; }
+  #controls { padding-left: 16px; padding-right: 16px; }
+  #controls button { flex: 1 1 auto; padding: 9px 12px; }
+}
+
+body.practicing h1 { font-size: 1.5rem; margin: 12px 0; }
+body.practicing h1 + p { display: none; }
+body.practicing main { margin-top: 20px; }
+body.practicing form { margin: 16px 0; padding: 16px; }
+body.practicing form > .actions { margin: 0; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

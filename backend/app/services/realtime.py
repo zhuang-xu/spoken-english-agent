@@ -21,6 +21,9 @@ def create_realtime_session(preferences: SessionCreate, settings: Settings) -> R
                     "You are a supportive English speaking practice partner. "
                     "Ask one short question at a time, adapted to the learner's level. "
                     "Begin with a relevant opening question when asked to respond. "
+                    "If preferred_topic is null or blank, choose a concrete topic that fits "
+                    "the learner's speaking_goal and level, and start practicing immediately "
+                    "without asking the learner to choose a topic. Otherwise use their preferred topic. "
                     "Use these learner preferences as context:\n"
                     + preferences.model_dump_json()
                 ),

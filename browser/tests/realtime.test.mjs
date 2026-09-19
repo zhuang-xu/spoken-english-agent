@@ -44,7 +44,7 @@ function harness(options = {}) {
     mediaDevices: { getUserMedia: options.media ?? (async () => stream) },
     onStatus: (...args) => statuses.push(args), onTranscript: text => transcripts.push(text),
     setupTimeoutMs: options.timeout ?? 30000,
-    onSession: options.onSession, onEvent: options.onEvent, onStop: options.onStop,
+    onAudioBlocked: options.onAudioBlocked, onSession: options.onSession, onEvent: options.onEvent, onStop: options.onStop,
     manualTurns: options.manualTurns, Recorder: options.Recorder, onTurnState: options.onTurnState,
     onTurnStart: options.onTurnStart, onTurnAudio: options.onTurnAudio, onTurnCommitted: options.onTurnCommitted });
   return { call, track, stream, audio, peers, requests, statuses, transcripts, session };
@@ -282,4 +282,20 @@ test("transport failure during recording forwards final audio before session sto
   await starting;
   h.call.stop();
   assert.deepEqual(order, ["recorder-stop", "audio-pending", "session-end"]);
+});
+
+
+test("blocked autoplay requests an explicit audio control without changing connection state", async () => {
+  let blocked = 0;
+  const h = harness({ onAudioBlocked: () => blocked++ });
+  h.audio.play = async () => { throw new Error("Autoplay blocked"); };
+  try {
+    await h.call.start(preferences);
+    const previous = h.statuses.length;
+    h.peers[0].ontrack({ streams: [h.stream] });
+    await Promise.resolve();
+    assert.equal(blocked, 1);
+    assert.equal(h.statuses.length, previous);
+    assert.ok(h.call.attempt);
+  } finally { h.call.stop(); }
 });

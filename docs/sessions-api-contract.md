@@ -6,8 +6,13 @@ contract-only adapter gate is superseded by the request to implement session sta
 ## Implemented
 
 - JSON request: `speaking_goal`, `level`, `preferred_topic`, `session_duration_minutes`.
-- Trim strings; require 2–500 / 2–50 / 2–200 characters respectively.
-- Level remains free text. Duration is a strict integer from 1 to 120.
+- Trim strings; require 2–500 characters for speaking goal and 2–50 for level.
+- Topic is optional: omitted, null, empty, or whitespace-only values normalize to null.
+  A supplied topic must have 2–200 characters. With no topic, the agent chooses one
+  matching the learner’s speaking goal and level and opens practice without asking for a topic.
+- The API accepts free-text goals and levels. Duration is a strict integer from 1 to 120.
+- The browser offers preset speaking goals, CEFR levels, topics, and practice lengths;
+  the default topic is “Let the agent choose.”
 - Reject unknown request fields.
 - Generate a UUID and persist a creating row before contacting Azure OpenAI.
 - Request a 60-second Realtime client credential with model, voice, and preferences.
@@ -71,3 +76,15 @@ These checks did not establish a browser WebRTC connection.
 Evaluation remains deferred. Session ending is implemented; see README.md. Learner recording
 uploads and finalized transcript storage are specified in the separate
 [learner-input contract](learner-inputs-api-contract.md).
+
+### Choice-based setup release — 2026-09-17
+
+- Deployed backend and browser assets to `spoken-agent-func-4fa2534c` with a remote
+  build; Azure reported successful deployment (`41f1045c-4f28-4e0d-8b5c-a6a239cd5e0f`).
+- Local verification: 209 backend tests and 41 browser tests passed (one backend
+  dependency deprecation warning).
+- Authenticated hosted checks confirmed the new choices and default agent-selected
+  topic, OpenAPI loading, invalid input returning 422, and a request omitting topic
+  returning 201 with null topic and an expiring real Realtime credential.
+- Anonymous health access returned 401; Microsoft sign-in protection remains enabled.
+- This verifies session creation, not a live WebRTC conversation or topic quality.

@@ -5,12 +5,12 @@ class ConnectionError extends Error {}
 
 export class RealtimeCall {
   constructor({ audio, onStatus = () => {}, onTranscript = () => {},
-    onSession = () => {}, onEvent = () => {}, onStop = () => {},
+    onAudioBlocked = () => {}, onSession = () => {}, onEvent = () => {}, onStop = () => {},
     manualTurns = false, Recorder = TurnRecorder, now = () => performance.now(),
     onTurnState = () => {}, onTurnStart = () => {}, onTurnAudio = () => {}, onTurnCommitted = () => {},
     fetchImpl = (...args) => globalThis.fetch(...args), mediaDevices = globalThis.navigator?.mediaDevices,
     PeerConnection = globalThis.RTCPeerConnection, setupTimeoutMs = 30000 } = {}) {
-    Object.assign(this, { manualTurns, Recorder, now, onTurnState, onTurnStart, onTurnAudio, onTurnCommitted, audio, onStatus, onTranscript, onSession, onEvent, onStop, fetchImpl, mediaDevices,
+    Object.assign(this, { onAudioBlocked, manualTurns, Recorder, now, onTurnState, onTurnStart, onTurnAudio, onTurnCommitted, audio, onStatus, onTranscript, onSession, onEvent, onStop, fetchImpl, mediaDevices,
       PeerConnection, setupTimeoutMs });
     this.attempt = null;
   }
@@ -47,7 +47,7 @@ export class RealtimeCall {
         if (!current()) return;
         this.audio.srcObject = event.streams[0] || new MediaStream([event.track]);
         this.audio.play().catch(() => {
-          if (current()) this.onStatus("connected", "Press Play in the audio controls to hear replies.");
+          if (current()) this.onAudioBlocked();
         });
       };
       pc.onconnectionstatechange = () => {

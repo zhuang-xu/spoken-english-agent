@@ -13,44 +13,83 @@
     <h1>Make room for a conversation.</h1>
     <p>Choose what you want to practice, then allow your microphone to start talking.</p>
     <form id="preferences">
+      <details id="setup" open>
+        <summary id="setup-summary">Practice preferences</summary>
       <fieldset id="fields">
         <label>Speaking goal
-          <textarea name="speaking_goal" required minlength="2" maxlength="500">Practice explaining my work clearly</textarea>
+          <select name="speaking_goal" required>
+            <option>Practice explaining my work clearly</option>
+            <option>Build confidence in everyday conversations</option>
+            <option>Prepare for a job interview</option>
+            <option>Speak more fluently with fewer pauses</option>
+            <option>Practice sharing opinions and giving reasons</option>
+            <option>Communicate confidently while traveling</option>
+          </select>
         </label>
         <label>English level
-          <input name="level" required minlength="2" maxlength="50" value="B1">
+          <select name="level" required>
+            <option value="A1">A1 — Beginner</option>
+            <option value="A2">A2 — Elementary</option>
+            <option value="B1" selected>B1 — Intermediate</option>
+            <option value="B2">B2 — Upper intermediate</option>
+            <option value="C1">C1 — Advanced</option>
+            <option value="C2">C2 — Proficient</option>
+          </select>
         </label>
-        <label>Topic
-          <input name="preferred_topic" required minlength="2" maxlength="200" value="Work and projects">
+        <label>Topic (optional)
+          <select name="preferred_topic" aria-describedby="topic-hint">
+            <option value="">Let the agent choose</option>
+            <option>Work and projects</option>
+            <option>Everyday life</option>
+            <option>Travel and culture</option>
+            <option>Hobbies and interests</option>
+            <option>Technology</option>
+            <option>Job interviews</option>
+          </select>
+          <small id="topic-hint">The agent will choose a topic to match your speaking goal and English level.</small>
         </label>
         <label>Practice length in minutes
-          <input name="session_duration_minutes" type="number" required min="1" max="120" step="1" value="15">
+          <select name="session_duration_minutes" required>
+            <option value="5">5 minutes</option>
+            <option value="10">10 minutes</option>
+            <option value="15" selected>15 minutes</option>
+            <option value="20">20 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
         </label>
         <small>A practice preference; End the conversation to save your answers and get feedback.</small>
       </fieldset>
+      </details>
       <div class="actions">
         <button id="start" type="submit">Start conversation</button>
-        <button id="stop" type="button" disabled>End conversation</button>
+
       </div>
     </form>
-    <p id="status" role="status" aria-live="polite">Ready to start.</p>
-    <audio id="reply" autoplay controls aria-label="Agent audio"></audio>
-    <p class="hint">If replies are silent, press Play in the audio controls.</p>
-    <button id="speak" type="button" aria-pressed="false" disabled>Start speaking</button>
-    <p id="turn-status" role="status" aria-live="polite"></p>
-    <section aria-labelledby="transcript-heading">
-      <h2 id="transcript-heading">Conversation transcripts</h2>
-      <p class="hint">Learner and partner transcripts are saved to the backend for feedback. Your microphone recordings are uploaded for pronunciation and fluency assessment. Use headphones to reduce partner audio entering your microphone. End conversation finishes your current turn, saves your answers with automatic retries, and requests feedback.</p>
-      <div id="transcripts" role="log" aria-live="polite"></div>
-    </section>
-    <section aria-labelledby="feedback-heading">
-      <h2 id="feedback-heading">Practice feedback</h2>
-      <p id="save-status" role="status" aria-live="polite"></p>
-      <p id="save-note" class="notice" role="alert" hidden></p>
-      <div class="actions">
-        <button id="evaluate" type="button" disabled>Get feedback</button>
-      </div>
+    <audio id="reply" autoplay hidden></audio>
+    <details id="conversation" open>
+      <summary id="transcript-heading">Conversation transcripts</summary>
+      <p class="hint">Your answers and recordings are saved for feedback. Use headphones to keep the agent’s voice out of your recording.</p>
+      <div id="transcripts" role="log" aria-label="Conversation transcripts" aria-live="polite" tabindex="0"><p class="hint">Your conversation will appear here.</p></div>
+      <button id="latest" type="button" hidden>Jump to latest</button>
+    </details>
+    <section id="feedback-section" aria-labelledby="feedback-heading" hidden>
+      <h2 id="feedback-heading" tabindex="-1">Practice feedback</h2>
       <div id="feedback" aria-live="polite"></div>
+    </section>
+    <section id="controls" aria-label="Conversation controls">
+      <div class="control-inner">
+        <p id="status" role="status" aria-live="polite">Ready to start.</p>
+        <p id="turn-status" role="status" aria-live="polite"></p>
+        <p id="save-status" role="status" aria-live="polite"></p>
+        <p id="save-note" class="notice" role="alert" hidden></p>
+        <div class="actions">
+          <button id="speak" type="button" aria-pressed="false" disabled>Start speaking</button>
+          <button id="stop" type="button" disabled>End &amp; get feedback</button>
+          <button id="evaluate" type="button" disabled hidden>Get feedback / retry</button>
+          <button id="sound" class="secondary" type="button" aria-pressed="false">Agent sound on</button>
+          <button id="enable-audio" class="secondary" type="button" hidden>Enable agent audio</button>
+        </div>
+      </div>
     </section>
   </main>
 </body>

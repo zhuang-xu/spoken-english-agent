@@ -532,3 +532,14 @@ A 404 for a session now explains that the server no longer has that session.
 Starting a new conversation is required after the storage migration; the change
 cannot restore already-lost temporary sessions. Request diagnostics record route,
 status and instance without recording conversation contents or credentials.
+
+### Conversation controls
+
+During practice, the setup collapses to a preference summary. Transcripts scroll
+inside their own keyboard-accessible panel and follow new messages only while the
+reader is near the bottom; otherwise “Jump to latest” is available. Speaking,
+ending, feedback retry, and save status remain in a fixed bottom control bar.
+“End & get feedback” saves the session and requests feedback, then reveals the
+result and collapses transcripts into “Review conversation.” Agent sound can be
+muted independently of the microphone; “Enable agent audio” appears if autoplay
+is blocked. The live audio stream no longer displays a recording timeline.
