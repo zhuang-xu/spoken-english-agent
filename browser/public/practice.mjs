@@ -46,6 +46,17 @@ const feedbackSection = document.querySelector("#feedback-section");
 const audio = document.querySelector("#reply");
 const sound = document.querySelector("#sound");
 const enableAudio = document.querySelector("#enable-audio");
+const contextChoices = document.querySelectorAll('input[name="context_choice"]');
+const customContext = document.querySelector(".custom-context");
+const topicInput = document.querySelector('input[name="preferred_topic"]');
+function syncContextChoice() {
+  const custom = document.querySelector('input[name="context_choice"]:checked')?.value === "custom";
+  customContext.hidden = !custom;
+  topicInput.disabled = !custom;
+  if (custom) topicInput.focus();
+}
+contextChoices.forEach(choice => choice.addEventListener("change", syncContextChoice));
+syncContextChoice();
 latest.addEventListener("click", () => { transcripts.scrollTop = transcripts.scrollHeight; latest.hidden = true; });
 transcripts.addEventListener("scroll", () => {
   if (transcripts.scrollHeight - transcripts.scrollTop - transcripts.clientHeight < 48) latest.hidden = true;
@@ -113,6 +124,8 @@ form.addEventListener("submit", event => {
   if (finalizing || evaluating || call.attempt) return;
   const data = new FormData(form);
   const preferences = Object.fromEntries(data);
+  delete preferences.context_choice;
+  if (!preferences.preferred_topic?.trim()) preferences.preferred_topic = "";
   for (const field of ["speaking_goal", "level"]) {
     preferences[field] = preferences[field].trim();
     if (preferences[field].length < 2) {
@@ -170,16 +183,26 @@ async function requestFeedback() {
       return;
     }
     const result = evaluation.result;
-    add("h3", "Overall feedback");
+    const outcome = new FormData(form).get("speaking_goal");
+    add("h3", `Progress toward: ${outcome}`);
     add("p", result.summary);
+    add("h3", "Evidence from your conversation");
+    for (const item of result.strengths) add("p", item);
+    add("h3", "General language feedback");
     for (const name of ["grammar", "vocabulary", "coherence"]) {
-      add("h3", `${name[0].toUpperCase() + name.slice(1)}: ${result[name].score ?? "Not assessed"}${result[name].score == null ? "" : "/5"}`);
+      add("h4", `${name[0].toUpperCase() + name.slice(1)}: ${result[name].score ?? "Not assessed"}${result[name].score == null ? "" : "/5"}`);
       add("p", result[name].feedback);
     }
-    for (const [title, items] of [["Strengths", result.strengths], ["Top priorities", result.next_steps]]) {
-      add("h3", title);
-      for (const item of items) add("p", item);
+    const assessed = evaluation.speech_assessments?.flatMap(item => item.status === "assessed" ? item.segments : []) ?? [];
+    if (assessed.length) {
+      const average = key => Math.round(assessed.reduce((sum, item) => sum + (item[key] ?? 0), 0) / assessed.filter(item => item[key] != null).length);
+      add("h4", `Pronunciation clarity: ${average("accuracy_score")}/100`);
+      add("p", "Based on the pronunciation accuracy measured in your recorded answers.");
+      add("h4", `Spoken fluency: ${average("fluency_score")}/100`);
+      add("p", "Based on pacing and continuity measured in your recorded answers.");
     }
+    add("h3", "One focused next step");
+    add("p", result.next_steps.join(" "));
     if (result.corrections.length) add("h3", "Corrections");
     for (const correction of result.corrections) {
       add("p", `${correction.original} → ${correction.improved}: ${correction.explanation}`);

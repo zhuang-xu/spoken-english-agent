@@ -18,6 +18,9 @@ def test_create_read_replay(ready_evaluation, mock_openai_post):
     assert created.headers['cache-control'] == 'no-store'
     body = created.json()
     assert body['status'] == 'completed'
+    assert body['transcript_status'] == body['final_status'] == 'completed'
+    assert body['speech_status'] == 'not_assessed'
+    assert body['transcript_result'] == body['result']
     assert body['not_assessed'] == ['pronunciation', 'spoken_fluency']
     assert body['result']['coherence']['score'] is None
     assert api.get(url).json() == body

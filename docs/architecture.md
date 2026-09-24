@@ -131,12 +131,15 @@ from `backend/`. The packaging script preserves Azure's required archive-root la
 
 ## Speech assessment
 
-The evaluation workflow snapshots audio hashes alongside transcripts. It calls
-`services/pronunciation.py` to decode the referenced learner recordings and obtain
-Azure Speech scores, then calls Azure OpenAI with transcript context and a bounded
-summary of those findings. The text evaluator integrates that evidence with the
-transcript into one coaching report. `services/speech_worker.py` isolates continuous Speech
-SDK recognition in a process with a parent-enforced timeout. Per-turn results are
-cached in `speech_assessments`; final results retain the evaluation attempt fence.
+The audio-upload workflow calls `services/pronunciation.py` to decode each learner
+recording and obtain context-free Azure Speech scores immediately. Per-turn outcomes,
+including unavailable configuration/provider states, are cached in `speech_assessments`.
+Two provider slots per process bound simultaneous Speech calls. Final evaluation
+snapshots audio hashes and transcripts, persists a transcript-only Azure OpenAI
+result, and waits if any expected audio hash lacks a terminal cache result. It then
+uses a separate small synthesis schema for summary, strengths and next steps while
+copying transcript categories and corrections unchanged. `services/speech_worker.py` isolates continuous Speech
+SDK recognition in a process with a parent-enforced timeout; final results retain the
+evaluation attempt fence.
 Speech credentials are independent of Azure OpenAI. See the
 [pronunciation contract](pronunciation-api-contract.md) for limits and coverage.

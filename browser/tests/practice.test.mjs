@@ -14,6 +14,7 @@ function page() {
       getBoundingClientRect() { return { height: 120 }; }, scrollIntoView() {}, focus() {} };
   }
   const document = { body: element(), createElement: element,
+    querySelectorAll() { return []; },
     querySelector(id) { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); } };
   let callbacks;
   const context = vm.createContext({ document, window: { addEventListener() {} },

@@ -25,7 +25,7 @@ def speech_cache(database_path, session_id, reference, assessment=None):
         )''')
         key = (session_id, reference['turn_id'], reference['sha256'], 'en-US-unscripted-v1')
         if assessment is not None:
-            db.execute('INSERT OR IGNORE INTO speech_assessments VALUES (?, ?, ?, ?, ?)',
+            db.execute('INSERT OR REPLACE INTO speech_assessments VALUES (?, ?, ?, ?, ?)',
                        (*key, assessment.model_dump_json()))
         row = db.execute('SELECT result FROM speech_assessments WHERE session_id=? AND turn_id=? '
                          'AND audio_sha256=? AND version=?', key).fetchone()

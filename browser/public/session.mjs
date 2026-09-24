@@ -30,7 +30,8 @@ export class SessionSync {
 
   async request(path, { method = "POST", body, contentType, keepalive = false } = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), path === "/evaluation" ? 200000 : 30000);
+    const timeout = path === "/evaluation" ? 200000 : path.endsWith("/audio") ? 130000 : 30000;
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await this.fetchImpl(`/sessions/${encodeURIComponent(this.id)}${path}`, {
         method, cache: "no-store", credentials: "same-origin", signal: controller.signal, keepalive,

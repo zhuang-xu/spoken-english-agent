@@ -3,9 +3,8 @@
 Prerequisite: an active session created using the
 [session-start contract](sessions-api-contract.md).
 
-Scope: receive learner recordings and finalized learner transcripts from the client.
-No agent transcript, transcription provider call, evaluation, browser recording,
-session ending, or cloud deployment is included in this increment.
+Scope: receive learner recordings and finalized learner transcripts from the client,
+and start the context-free pronunciation/fluency assessment when audio arrives.
 
 - Client generates one UUID `turn_id` per push-to-talk utterance and reuses it for
   both uploads. `session_id` is the UUID returned by session creation.
@@ -13,7 +12,9 @@ session ending, or cloud deployment is included in this increment.
   audio with Content-Type audio/webm, audio/ogg, audio/wav, audio/mp4, or audio/mpeg.
   MIME parameters (such as codecs) are preserved, normalized to lowercase.
   Empty bodies return 422; bodies above 10 MiB return 413, including streamed bodies.
-  The server stores opaque bytes; it does not validate codecs or decode audio.
+  The server stores bytes before Speech-state work. When Azure Speech is configured,
+  it decodes and assesses the recording synchronously without conversation context.
+  Otherwise it caches a terminal `not_configured` unavailable result.
 - `PUT /sessions/{session_id}/learner-turns/{turn_id}/transcript` accepts JSON:
   `text` (trimmed, 1–20000 characters), `start_ms` and `end_ms` (strict nonnegative
   integers relative to the client session recording clock; end must exceed start),
@@ -26,11 +27,14 @@ session ending, or cloud deployment is included in this increment.
   content for an already stored component returns 409 without overwriting it.
   Writes and retry checks are transactional. Neither upload changes session status.
 - Response: `session_id`, `turn_id`, `audio_received`, `transcript_received`.
-  Both flags true means inputs received, not evaluated or independently verified.
+  Both flags true means inputs were received. Assessment results are returned with
+  the final session evaluation rather than the upload receipt.
   Responses have Cache-Control: no-store and never echo recording or transcript.
 - Unknown sessions return 404, non-active sessions 409, invalid UUIDs/input 422,
   unsupported content types 415, and storage failures 503 with generic detail.
-  A fresh database with no sessions returns 404. No provider calls are made.
+  With Speech configured, invalid audio returns 422 after durable capture; Speech
+  provider failure is saved as unavailable without failing the upload. A fresh
+  database with no sessions returns 404.
 - Hosted requests inherit Azure function-key protection. Local routes have no user
   authentication; ownership checks, retention/deletion, per-session storage quotas,
   durable cloud storage, and audio download/list endpoints remain deferred.
@@ -41,7 +45,7 @@ session ending, or cloud deployment is included in this increment.
 
 `backend/tests/test_learner_inputs.py` covers both arrival orders, exact persisted bytes and
 transcript metadata, retries/conflicts, input limits, unknown/inactive sessions,
-transaction failure responses, and absence of provider requests during capture.
+transaction failure responses, and configured/unconfigured provider behavior.
 Tests also cover simultaneous component writes, duplicate races, transaction rollback,
 and isolation between sessions sharing a turn ID.
 

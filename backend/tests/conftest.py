@@ -108,6 +108,15 @@ def evaluation_response(evaluation_payload):
 
 
 @pytest.fixture
+def synthesis_response(evaluation_payload):
+    import json
+    payload = {key: evaluation_payload[key] for key in ('summary', 'strengths', 'next_steps')}
+    return httpx.Response(200, request=httpx.Request('POST', 'https://test-resource.openai.azure.com'),
+                          json={'choices': [{'finish_reason': 'stop', 'message': {
+                              'content': json.dumps(payload), 'refusal': None}}]})
+
+
+@pytest.fixture
 def ready_evaluation(learner_turn, mock_openai_post, evaluation_response):
     api, settings, base, transcript = learner_turn
     session = base.split('/')[2]
@@ -166,20 +175,20 @@ def mock_speech_process(monkeypatch, speech_payload):
 
 @pytest.fixture
 def ready_speech_evaluation(learner_turn, learner_wav, mock_openai_post,
-                            evaluation_response, mock_speech_process):
+                            evaluation_response, synthesis_response, mock_speech_process):
     api, settings, base, transcript = learner_turn
     sid, turn = base.split('/')[2], base.split('/')[-1]
+    from pydantic import SecretStr
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
     api.put(base + '/transcript', json=transcript).raise_for_status()
     api.put(base + '/audio', content=learner_wav, headers={'Content-Type': 'audio/wav'}).raise_for_status()
     api.post(f'/sessions/{sid}/end').raise_for_status()
     api.put(f'/sessions/{sid}/upload-manifest', json={
         'audio_turn_ids': [turn], 'transcript_turn_ids': [turn], 'agent_transcripts': []}).raise_for_status()
-    from pydantic import SecretStr
-    settings.azure_speech_key = SecretStr('speech-secret')
-    settings.azure_speech_region = 'eastus'
     settings.azure_openai_evaluation_deployment = 'test-evaluation'
     mock_openai_post.reset_mock()
-    mock_openai_post.return_value = evaluation_response
+    mock_openai_post.side_effect = [evaluation_response, synthesis_response]
     return api, settings, f'/sessions/{sid}/evaluation'
 
 

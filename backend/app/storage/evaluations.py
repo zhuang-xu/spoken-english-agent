@@ -11,7 +11,7 @@ from app.storage.completeness import data_status_on_connection
 from app.storage.sqlite import migrate_session_lifecycle
 
 MAX_SNAPSHOT_BYTES = 200_000
-RUBRIC_VERSION = 'unified-coaching-v3'
+RUBRIC_VERSION = 'staged-coaching-v4'
 
 
 def evaluation_record(database_path, session_id, deployment=None):
@@ -42,6 +42,8 @@ def evaluation_record(database_path, session_id, deployment=None):
             record = record.model_copy(update={
                 'status': 'running', 'attempt_id': str(uuid4()), 'started_at': now,
                 'completed_at': None, 'result': None, 'error_code': None,
+                'transcript_status': ('completed' if record.transcript_result else 'running'),
+                'final_status': 'pending',
             })
         else:
             if deployment is None:
@@ -76,13 +78,54 @@ def evaluation_record(database_path, session_id, deployment=None):
                 session_id=session_id, status='running', attempt_id=str(uuid4()), started_at=now,
                 completed_at=None, rubric_version=RUBRIC_VERSION, deployment=deployment,
                 input_sha256=hashlib.sha256(snapshot.encode()).hexdigest(), result=None, error_code=None,
+                transcript_status='running',
+                speech_status='pending' if audio_refs else 'not_assessed', final_status='pending',
             )
         db.execute('INSERT OR REPLACE INTO session_evaluations VALUES (?, ?, ?)',
                    (session_id, snapshot, record.model_dump_json()))
         return 'reserved', record, snapshot
 
 
-def finish_evaluation(database_path, record, result=None, error_code=None, speech_assessments=None):
+def save_transcript_evaluation(database_path, record, transcript_result):
+    """Fence and persist the reusable transcript branch before final synthesis."""
+    with database_connection(database_path) as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+                         (record.session_id,)).fetchone()
+        current = EvaluationResponse.model_validate_json(row[0]) if row else None
+        if current is None or current.attempt_id != record.attempt_id or current.status != 'running':
+            return None
+        updated = current.model_copy(update={
+            'transcript_status': 'completed', 'transcript_result': transcript_result,
+        })
+        db.execute('UPDATE session_evaluations SET record=? WHERE session_id=?',
+                   (updated.model_dump_json(), record.session_id))
+        return updated
+
+
+def wait_for_speech(database_path, record, speech_assessments, speech_summary, pending_turn_ids):
+    """Persist component progress and release the attempt for a later POST retry."""
+    with database_connection(database_path) as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+                         (record.session_id,)).fetchone()
+        current = EvaluationResponse.model_validate_json(row[0]) if row else None
+        if current is None or current.attempt_id != record.attempt_id or current.status != 'running':
+            return None
+        updated = current.model_copy(update={
+            'status': 'waiting', 'speech_status': 'running',
+            'speech_assessments': speech_assessments, 'speech_summary': speech_summary,
+            'speech_pending_turn_ids': pending_turn_ids,
+            'not_assessed': [] if any(a.status == 'assessed' for a in speech_assessments)
+                            else ['pronunciation', 'spoken_fluency'],
+        })
+        db.execute('UPDATE session_evaluations SET record=? WHERE session_id=?',
+                   (updated.model_dump_json(), record.session_id))
+        return updated
+
+
+def finish_evaluation(database_path, record, result=None, error_code=None,
+                      speech_assessments=None, speech_summary=None, failure_stage='final'):
     with database_connection(database_path) as db:
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
@@ -94,6 +137,14 @@ def finish_evaluation(database_path, record, result=None, error_code=None, speec
             'status': 'failed' if error_code else 'completed',
             'completed_at': datetime.now(timezone.utc), 'result': result, 'error_code': error_code,
             'speech_assessments': speech_assessments or [],
+            'speech_summary': speech_summary,
+            'speech_pending_turn_ids': [],
+            'transcript_status': ('failed' if error_code and failure_stage == 'transcript'
+                                  else record.transcript_status),
+            'speech_status': ('not_assessed' if not speech_assessments else
+                              'partial' if any(a.status == 'unavailable' for a in speech_assessments)
+                              else 'completed'),
+            'final_status': 'failed' if error_code else 'completed',
             'not_assessed': [] if any(a.status == 'assessed' for a in speech_assessments or [])
                             else ['pronunciation', 'spoken_fluency'],
         })

@@ -2,19 +2,21 @@
 
 ## Scope
 
-Extend POST/GET `/sessions/{session_id}/evaluation` with Azure Speech unscripted
-assessment of stored learner audio. Existing transcript feedback remains supported.
+Assess each learner recording with Azure Speech as soon as its audio upload is
+stored, then extend POST/GET `/sessions/{session_id}/evaluation` with the cached
+unscripted results. Existing transcript feedback remains supported.
 Use the contract-to-Azure workflow; this change implements and tests locally.
 Azure resource creation, deployment and GitHub publication are separate stages.
 
-New snapshots (rubric `unified-coaching-v3`) include immutable audio references:
+New snapshots (rubric `staged-coaching-v4`) include immutable audio references:
 turn ID, MIME type, byte count and SHA-256. Bytes stay in the existing learner audio
-store and are verified against the hash before use. Snapshot captures these
+store; cached results use the same hash as their identity. Snapshot captures these
 references atomically with readiness and transcript context. Existing v1 snapshots
 and completed results keep their original behavior; retries do not add new inputs.
 
-For each audio reference, decode WebM/Ogg/WAV/MP4/MPEG into 16 kHz mono signed-16-bit
-PCM using PyAV. Do not trim silence, stitch separate turns, include agent audio or
+For each audio upload, decode WebM/Ogg/WAV/MP4/MPEG into 16 kHz mono signed-16-bit
+PCM using PyAV, assess it immediately, and cache the normalized turn result. Do not
+trim silence, stitch separate turns, include agent audio or
 substitute corrected text for what was spoken. Assess with no reference text,
 HundredMark scoring, phoneme granularity and prosody enabled for en-US. Local use
 defaults to the Azure Speech SDK in continuous mode. Azure hosting defaults to the
@@ -26,12 +28,14 @@ Speech resource, independently of Azure OpenAI.
 
 ## Response
 
-Add `speech_assessments` to EvaluationResponse, a list of per-turn assessments.
+Add `speech_assessments` to EvaluationResponse, a list of cached per-turn assessments.
 Each has turn_id, audio_sha256, locale, status, reason, duration_ms, and segments.
 Each segment contains recognized text, recording-relative offset/duration in ms,
 Azure accuracy/fluency/prosody scores (0–100; unavailable prosody is null), and
-word/phoneme accuracy with offsets. Return Azure segment scores directly; do not
-present a fabricated aggregate as an Azure session score. Very short (<3 seconds)
+word/phoneme accuracy with offsets. Return Azure segment scores directly. Also
+return `speech_summary`, a deterministic application aggregate with coverage and
+arithmetic mean pronunciation, spoken-fluency, and optional prosody scores; it is
+not an Azure whole-session score. Very short (<3 seconds)
 recordings, no recognized speech, or fewer than five recognized words return
 insufficient_evidence with no scored segments. These are conservative application
 thresholds, not validated proficiency rules. No-speech is not a zero score.
@@ -42,8 +46,9 @@ for the listed segments only, not necessarily the whole session. Speech coverage
 and insufficient turns remain explicit in the per-turn results. Raw provider
 payloads, subscription keys, and SDK diagnostics are never returned or logged.
 
-Send a compact summary of measured speech findings to Azure OpenAI alongside the
-original conversation snapshot. The summary includes coverage, arithmetic means
+Send a compact summary of measured speech findings to the final synthesis call
+alongside the saved transcript evaluation, not raw transcripts or audio. The
+summary includes coverage, arithmetic means
 across previewed assessed segments and up to three low-scoring flagged words. The
 text model must synthesize this evidence with transcript findings in the existing
 summary, strengths and ranked next_steps, without a separate pronunciation report.
@@ -53,28 +58,38 @@ prompt without bound. Existing transcript scoring schema is unchanged.
 
 ## Persistence, failures and limits
 
-Persist completed per-turn Speech assessments keyed by session, turn, audio hash
-and locale, independent of the evaluation attempt. Retries reuse these cached
-results. No database lock spans provider work. Final evaluation writes retain the
-existing attempt fence. Late uploads never alter an input snapshot. Old snapshots
-without audio references remain transcript-only even when retried.
+Persist every per-turn Speech outcome keyed by session, turn, audio hash, locale
+and version, independent of the evaluation attempt. Identical upload retries reuse
+assessed or insufficient results and retry an unavailable provider result. No
+database lock spans provider work. Final evaluation reads only cached results and
+never decodes audio or calls Azure Speech. Its writes retain the existing attempt
+fence. Late uploads never alter an input snapshot. Old snapshots without audio
+references remain transcript-only even when retried.
 
-Missing Speech configuration when audio is present: 503. Invalid/undecodable or
-multitrack audio: 422. Recordings over ten minutes: 413; database failure: 503.
+Missing or invalid Speech configuration does not block durable audio capture; it
+caches a terminal unavailable result with reason `not_configured`. An identical
+upload retry may replace it after configuration is restored. Invalid/undecodable or multitrack audio
+when Speech is configured: 422. Recordings over ten minutes: 413; database failure: 503.
 Speech rejection, timeout, unavailable runtime or malformed assessment data creates
-a per-turn `unavailable` result with reason `provider_unavailable`. Do not cache that
-result. Continue to the Azure OpenAI step and return transcript feedback, retaining
+a per-turn `unavailable` result with reason `provider_unavailable`. Cache that
+result, but let an identical upload retry replace it after a successful provider
+call. Continue to the Azure OpenAI step and return transcript feedback, retaining
 pronunciation and spoken fluency in `not_assessed`. Enforce a shared 120-second
-wall-clock budget for uncached Speech work per request; successful turns are cached.
+wall-clock budget for uncached Speech work per request; all outcomes are cached.
+Each application process admits at most two concurrent Speech provider calls;
+additional uploads wait within their existing deadline and become unavailable if
+they cannot obtain a slot. This is bounded local backpressure, not a durable or
+cross-instance queue.
 The SDK transport runs in an isolated child process with a hard timeout and no
 diagnostic output; the hosted REST transport uses bounded 25-second WAV chunks.
-The subsequent text call retains its 60-second timeout.
+The subsequent text call retains its 60-second timeout. The browser allows 130
+seconds for audio uploads so the request covers the server Speech budget.
 Snapshot identity and saved scores are separate: no automatic reevaluation of
 completed results after configuration changes.
 
 Hosted authorization stays FUNCTION-key based. Local routes remain unauthenticated.
-The upload API still stores raw bytes; decoding/format validation happens during
-evaluation. Browser turn recording, binary uploads, and unified feedback display are implemented;
+The upload API stores raw bytes before its upload-time decoding and format validation.
+Browser turn recording, binary uploads, and unified feedback display are implemented;
 see the [browser contract](browser-webrtc-api-contract.md). Audio must be a
 learner-only clip with its original internal pauses for meaningful assessment.
 This is formative feedback requiring real-audio/teacher calibration, not certification.
@@ -124,3 +139,16 @@ quality for real learner recordings still requires calibration.
   assessment. Configuration, storage and invalid-audio errors remain blocking.
 - Unit coverage verifies the REST request shape, flat REST score parsing, sanitized
   fallback behavior, partial assessment coverage and browser rendering.
+
+## Upload-time assessment redesign — 2026-09-24
+
+- Audio upload performs the context-free pronunciation/fluency assessment and saves
+  the normalized result immediately. Final evaluation performs cache reads, supplies
+  only compact Speech findings to the text model, and returns a deterministic
+  `speech_summary` alongside detailed turn evidence.
+- Audio uploaded while Speech is unconfigured receives an explicit cached unavailable
+  result and is not sent later at session completion.
+- Python 3.11.6 full backend suite: **216 passed**, with one existing Starlette/AnyIO
+  deprecation warning. Browser suite: **44 passed** using the bundled Node runtime.
+  `git diff --check` passed. Provider HTTP/process boundaries were mocked; no paid
+  Speech call, Azure deployment, commit, or GitHub publication was performed.

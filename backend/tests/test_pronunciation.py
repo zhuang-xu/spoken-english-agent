@@ -16,13 +16,40 @@ from app.services.pronunciation import decode_audio, parse_assessment, recognize
 from app.storage.evaluations import evaluation_record, finish_evaluation
 
 
+def finish_speech_session(learner_turn, learner_wav, mock_openai_post,
+                          evaluation_response, synthesis_response):
+    """Upload configured audio now, then build the final text-evaluation snapshot."""
+    api, settings, base, transcript = learner_turn
+    sid, turn = base.split('/')[2], base.split('/')[-1]
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
+    settings.azure_openai_evaluation_deployment = 'test-evaluation'
+    api.put(base + '/transcript', json=transcript).raise_for_status()
+    upload = api.put(base + '/audio', content=learner_wav, headers={'Content-Type': 'audio/wav'})
+    api.post(f'/sessions/{sid}/end').raise_for_status()
+    api.put(f'/sessions/{sid}/upload-manifest', json={
+        'audio_turn_ids': [turn], 'transcript_turn_ids': [turn],
+        'agent_transcripts': []}).raise_for_status()
+    mock_openai_post.reset_mock()
+    mock_openai_post.side_effect = [evaluation_response, synthesis_response]
+    return api, settings, f'/sessions/{sid}/evaluation', upload
+
+
 def test_combined_evaluation(ready_speech_evaluation, mock_speech_process, mock_openai_post):
     api, settings, url = ready_speech_evaluation
     response = api.post(url)
     assert response.status_code == 201, response.text
     result = response.json()
-    assert result['rubric_version'] == 'unified-coaching-v3'
+    assert result['rubric_version'] == 'staged-coaching-v4'
+    assert result['transcript_status'] == result['final_status'] == 'completed'
+    assert result['speech_status'] == 'completed'
+    assert result['transcript_result'] is not None
     assert result['not_assessed'] == []
+    assert result['speech_summary'] == {
+        'assessed_turns': 1, 'total_turns': 1, 'assessed_segments': 1,
+        'average_pronunciation': 85, 'average_spoken_fluency': 80,
+        'average_rhythm_and_intonation': 75,
+    }
     assessment = result['speech_assessments'][0]
     assert assessment['status'] == 'assessed'
     assert assessment['duration_ms'] == 4000
@@ -34,7 +61,8 @@ def test_combined_evaluation(ready_speech_evaluation, mock_speech_process, mock_
     assert segment['words'][0]['phonemes'][0]['accuracy_score'] == 85
     assert api.get(url).json() == result
     assert api.post(url).json() == result
-    assert mock_speech_process.call_count == mock_openai_post.call_count == 1
+    assert mock_speech_process.call_count == 1
+    assert mock_openai_post.call_count == 2
     call = mock_speech_process.call_args
     assert call.args[0][-1] == 'app.services.speech_worker'
     assert 'speech-secret' not in str(call.args)
@@ -58,27 +86,80 @@ def test_combined_evaluation(ready_speech_evaluation, mock_speech_process, mock_
 
 
 def test_speech_cached_when_text_fails(ready_speech_evaluation, mock_speech_process,
-                                      mock_openai_post, evaluation_response):
+                                      mock_openai_post, evaluation_response, synthesis_response):
     api, settings, url = ready_speech_evaluation
     mock_openai_post.side_effect = httpx.ReadTimeout('private')
     assert api.post(url).status_code == 504
     assert api.get(url).json()['status'] == 'failed'
-    mock_openai_post.side_effect = None
-    mock_openai_post.return_value = evaluation_response
+    mock_openai_post.side_effect = [evaluation_response, synthesis_response]
     settings.azure_speech_key = SecretStr('')
     assert api.post(url).status_code == 201
     assert mock_speech_process.call_count == 1
 
 
-@pytest.mark.parametrize('kind', ['timeout', 'failure', 'malformed'])
-def test_speech_failure_returns_transcript_feedback(ready_speech_evaluation, mock_speech_process,
-                                                    mock_openai_post, kind):
+def test_transcript_finishes_while_last_speech_turn_is_pending(
+        ready_speech_evaluation, learner_wav, mock_speech_process, mock_openai_post):
+    api, settings, url = ready_speech_evaluation
+    sid = url.split('/')[2]
+    with sqlite3.connect(settings.database_path) as db:
+        turn = db.execute('SELECT turn_id FROM learner_turns WHERE session_id=?', (sid,)).fetchone()[0]
+        db.execute('DELETE FROM speech_assessments WHERE session_id=?', (sid,))
+
+    waiting = api.post(url)
+    assert waiting.status_code == 202
+    assert waiting.headers['retry-after'] == '5'
+    state = waiting.json()
+    assert state['status'] == 'waiting'
+    assert state['transcript_status'] == 'completed'
+    assert state['speech_status'] == 'running'
+    assert state['final_status'] == 'pending'
+    assert state['speech_pending_turn_ids'] == [turn]
+    first_attempt = state['attempt_id']
+    assert mock_openai_post.call_count == 1
+
+    retry = api.put(f'/sessions/{sid}/learner-turns/{turn}/audio', content=learner_wav,
+                    headers={'Content-Type': 'audio/wav'})
+    assert retry.status_code == 200
+    completed = api.post(url)
+    assert completed.status_code == 201
+    result = completed.json()
+    assert result['status'] == 'completed'
+    assert result['attempt_id'] != first_attempt
+    assert result['transcript_status'] == result['final_status'] == 'completed'
+    assert result['speech_status'] == 'completed'
+    assert result['speech_pending_turn_ids'] == []
+    assert mock_openai_post.call_count == 2
+
+
+def test_final_synthesis_retry_reuses_transcript_result(
+        ready_speech_evaluation, mock_openai_post, evaluation_response, synthesis_response):
     api, _, url = ready_speech_evaluation
+    mock_openai_post.side_effect = [evaluation_response, httpx.ReadTimeout('private')]
+    assert api.post(url).status_code == 504
+    failed = api.get(url).json()
+    assert failed['transcript_status'] == 'completed'
+    assert failed['final_status'] == 'failed'
+    assert failed['transcript_result'] is not None
+
+    mock_openai_post.side_effect = [synthesis_response]
+    completed = api.post(url)
+    assert completed.status_code == 201
+    assert completed.json()['status'] == 'completed'
+    assert mock_openai_post.call_count == 3
+
+
+@pytest.mark.parametrize('kind', ['timeout', 'failure', 'malformed'])
+def test_speech_failure_returns_transcript_feedback(
+        learner_turn, learner_wav, evaluation_response, synthesis_response, mock_speech_process,
+        mock_openai_post, kind):
     if kind == 'timeout':
         mock_speech_process.side_effect = subprocess.TimeoutExpired(['worker'], 1)
     else:
         mock_speech_process.return_value = subprocess.CompletedProcess([], 1 if kind == 'failure' else 0,
                                                                        stdout=b'private provider error')
+    api, _, url, upload = finish_speech_session(
+        learner_turn, learner_wav, mock_openai_post, evaluation_response, synthesis_response)
+    assert upload.status_code == 201
     response = api.post(url)
     assert response.status_code == 201
     assert 'private' not in response.text
@@ -90,21 +171,45 @@ def test_speech_failure_returns_transcript_feedback(ready_speech_evaluation, moc
     assert mock_openai_post.call_count == 1
 
 
+def test_identical_upload_retries_unavailable_assessment(
+        learner_turn, learner_wav, mock_speech_process):
+    api, settings, base, _ = learner_turn
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
+    success = mock_speech_process.return_value
+    mock_speech_process.side_effect = subprocess.TimeoutExpired(['worker'], 1)
+    first = api.put(base + '/audio', content=learner_wav, headers={'Content-Type': 'audio/wav'})
+    assert first.status_code == 201
+    mock_speech_process.side_effect = None
+    mock_speech_process.return_value = success
+    second = api.put(base + '/audio', content=learner_wav, headers={'Content-Type': 'audio/wav'})
+    assert second.status_code == 200
+    with sqlite3.connect(settings.database_path) as db:
+        cached = json.loads(db.execute('SELECT result FROM speech_assessments').fetchone()[0])
+    assert cached['status'] == 'assessed'
+    assert mock_speech_process.call_count == 2
+
+
 @pytest.mark.parametrize('key,region', [('', 'eastus'), ('secret', ''), ('secret', 'https://evil.example')])
-def test_speech_configuration(ready_speech_evaluation, mock_speech_process, mock_openai_post, key, region):
-    api, settings, url = ready_speech_evaluation
+def test_speech_configuration(learner_turn, learner_wav, mock_speech_process,
+                              mock_openai_post, evaluation_response, key, region):
+    api, settings, base, transcript = learner_turn
     settings.azure_speech_key = SecretStr(key)
     settings.azure_speech_region = region
-    assert api.post(url).status_code == 503
-    assert api.get(url).json()['error_code'] == 'speech_unavailable'
+    assert api.put(base + '/audio', content=learner_wav,
+                   headers={'Content-Type': 'audio/wav'}).status_code == 201
+    with sqlite3.connect(settings.database_path) as db:
+        cached = json.loads(db.execute('SELECT result FROM speech_assessments').fetchone()[0])
+    assert cached['status'] == 'unavailable'
+    assert cached['reason'] == 'not_configured'
+    assert cached['duration_ms'] is None
     mock_speech_process.assert_not_called()
-    mock_openai_post.assert_not_called()
 
 
 @pytest.mark.parametrize('bad', ['score', 'timing', 'empty', 'nan', 'shape'])
 def test_invalid_speech_result_returns_transcript_feedback(
-        ready_speech_evaluation, mock_speech_process, mock_openai_post, speech_payload, bad):
-    api, _, url = ready_speech_evaluation
+        learner_turn, learner_wav, evaluation_response, synthesis_response, mock_speech_process,
+        mock_openai_post, speech_payload, bad):
     if bad == 'score':
         speech_payload[0]['NBest'][0]['PronunciationAssessment']['AccuracyScore'] = 101
     elif bad == 'nan':
@@ -117,6 +222,9 @@ def test_invalid_speech_result_returns_transcript_feedback(
         speech_payload = [None]
     mock_speech_process.return_value = subprocess.CompletedProcess([], 0,
         stdout=json.dumps({'segments': speech_payload}).encode())
+    api, _, url, upload = finish_speech_session(
+        learner_turn, learner_wav, mock_openai_post, evaluation_response, synthesis_response)
+    assert upload.status_code == 201
     response = api.post(url)
     assert response.status_code == 201
     assert response.json()['speech_assessments'][0]['status'] == 'unavailable'
@@ -124,9 +232,11 @@ def test_invalid_speech_result_returns_transcript_feedback(
     assert mock_openai_post.call_count == 1
 
 
-def test_no_speech_is_insufficient(ready_speech_evaluation, mock_speech_process):
-    api, _, url = ready_speech_evaluation
+def test_no_speech_is_insufficient(learner_turn, learner_wav, evaluation_response,
+                                   synthesis_response, mock_openai_post, mock_speech_process):
     mock_speech_process.return_value = subprocess.CompletedProcess([], 0, stdout=b'{"segments":[]}')
+    api, _, url, _ = finish_speech_session(
+        learner_turn, learner_wav, mock_openai_post, evaluation_response, synthesis_response)
     result = api.post(url).json()
     assert result['speech_assessments'][0]['reason'] == 'no_recognized_speech'
     assert result['speech_assessments'][0]['segments'] == []
@@ -172,7 +282,8 @@ def test_snapshot_rejects_changed_audio(ready_speech_evaluation, mock_speech_pro
     finish_evaluation(settings.database_path, record, error_code='test')
     with sqlite3.connect(settings.database_path) as db:
         db.execute('UPDATE learner_turns SET audio=? WHERE session_id=?', (b'changed', sid))
-    assert api.post(url).status_code == 503
+    mock_speech_process.reset_mock()
+    assert api.post(url).status_code == 201
     mock_speech_process.assert_not_called()
 
 
@@ -186,6 +297,7 @@ def test_v1_retry_remains_transcript_only(ready_speech_evaluation, mock_speech_p
     with sqlite3.connect(settings.database_path) as db:
         db.execute('UPDATE session_evaluations SET snapshot=?, record=?',
                    (json.dumps(source), record.model_dump_json()))
+    mock_speech_process.reset_mock()
     response = api.post(url)
     assert response.status_code == 201
     assert response.json()['speech_assessments'] == []
@@ -247,6 +359,8 @@ def test_partial_speech_progress_survives_provider_timeout(
     # Add a second audio-only turn before declaring a fresh two-audio inventory.
     # Adjust the manifest directly in this fixture: public manifests are immutable.
     turn = str(uuid4())
+    mock_speech_process.reset_mock()
+    mock_speech_process.side_effect = subprocess.TimeoutExpired(['worker'], 1)
     api.put(f'/sessions/{sid}/learner-turns/{turn}/audio', content=learner_wav,
             headers={'Content-Type': 'audio/wav'}).raise_for_status()
     with sqlite3.connect(settings.database_path) as db:
@@ -254,44 +368,64 @@ def test_partial_speech_progress_survives_provider_timeout(
                                         (sid,)).fetchone()[0])
         manifest['audio_turn_ids'].append(turn)
         db.execute('UPDATE practice_sessions SET upload_manifest=? WHERE id=?', (json.dumps(manifest), sid))
-    success = mock_speech_process.return_value
-    mock_speech_process.side_effect = [success, subprocess.TimeoutExpired(['worker'], 1)]
     response = api.post(url)
     assert response.status_code == 201
     assessments = response.json()['speech_assessments']
-    assert [item['status'] for item in assessments] == ['assessed', 'unavailable']
-    assert mock_openai_post.call_count == 1
+    assert sorted(item['status'] for item in assessments) == ['assessed', 'unavailable']
+    assert mock_openai_post.call_count == 2
     with sqlite3.connect(settings.database_path) as db:
-        assert db.execute('SELECT count(*) FROM speech_assessments').fetchone()[0] == 1
+        assert db.execute('SELECT count(*) FROM speech_assessments').fetchone()[0] == 2
     assert len(api.get(url).json()['speech_assessments']) == 2
-    assert mock_speech_process.call_count == 2
+    assert mock_speech_process.call_count == 1
 
 
-def test_cache_storage_error(ready_speech_evaluation, monkeypatch, mock_speech_process):
-    api, _, url = ready_speech_evaluation
+def test_cache_storage_error(learner_turn, learner_wav, monkeypatch, mock_speech_process):
+    api, settings, base, _ = learner_turn
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
     def fail(*args):
         raise sqlite3.OperationalError('secret database detail')
     monkeypatch.setattr('app.services.pronunciation.speech_cache', fail)
-    response = api.post(url)
+    response = api.put(base + '/audio', content=learner_wav, headers={'Content-Type': 'audio/wav'})
     assert response.status_code == 503
     assert 'secret' not in response.text
-    assert api.get(url).json()['status'] == 'failed'
     mock_speech_process.assert_not_called()
 
 
-def test_invalid_recording_persists_failure(ready_speech_evaluation, mock_speech_process):
-    api, settings, url = ready_speech_evaluation
-    with sqlite3.connect(settings.database_path) as db:
-        db.execute('UPDATE learner_turns SET audio=?', (b'not a wav',))
-    assert api.post(url).status_code == 422
-    assert api.get(url).json()['error_code'] == 'invalid_audio'
+def test_invalid_recording_fails_during_upload(learner_turn, mock_speech_process):
+    api, settings, base, _ = learner_turn
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
+    assert api.put(base + '/audio', content=b'not a wav',
+                   headers={'Content-Type': 'audio/wav'}).status_code == 422
     mock_speech_process.assert_not_called()
 
 
-def test_uncached_timeout_budget(ready_speech_evaluation, mock_speech_process, monkeypatch):
-    api, _, url = ready_speech_evaluation
+def test_upload_timeout_budget(learner_turn, learner_wav, mock_speech_process, monkeypatch):
+    api, settings, base, _ = learner_turn
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
     monkeypatch.setattr('app.services.pronunciation.SPEECH_BUDGET_SECONDS', -1)
-    assert api.post(url).status_code == 504
+    assert api.put(base + '/audio', content=learner_wav,
+                   headers={'Content-Type': 'audio/wav'}).status_code == 504
+    mock_speech_process.assert_not_called()
+
+
+def test_provider_slot_saturation_is_bounded(
+        learner_turn, learner_wav, mock_speech_process, monkeypatch):
+    api, settings, base, _ = learner_turn
+    settings.azure_speech_key = SecretStr('speech-secret')
+    settings.azure_speech_region = 'eastus'
+    slot = type('NoSlot', (), {'acquire': lambda self, timeout: False,
+                               'release': lambda self: None})()
+    monkeypatch.setattr('app.services.pronunciation.SPEECH_PROVIDER_SLOTS', slot)
+    response = api.put(base + '/audio', content=learner_wav,
+                       headers={'Content-Type': 'audio/wav'})
+    assert response.status_code == 201
+    with sqlite3.connect(settings.database_path) as db:
+        cached = json.loads(db.execute('SELECT result FROM speech_assessments').fetchone()[0])
+    assert cached['status'] == 'unavailable'
+    assert cached['reason'] == 'provider_unavailable'
     mock_speech_process.assert_not_called()
 
 

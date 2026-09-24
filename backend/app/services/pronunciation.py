@@ -1,5 +1,6 @@
 """Decode learner recordings, call Azure Speech, and preserve measured turn evidence."""
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -9,20 +10,22 @@ import re
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import wave
 
 import av
 import httpx
 from fastapi import HTTPException
-from app.schemas import SpeechAssessment, SpeechSegment, SpeechWord, SpeechPhoneme
-from app.storage.speech import load_audio, speech_cache
+from app.schemas import SpeechAssessment, SpeechSegment, SpeechWord, SpeechPhoneme, SpeechSummary
+from app.storage.speech import speech_cache
 
 SPEECH_BUDGET_SECONDS = 120.0
 MAX_AUDIO_SECONDS = 600
 FORMATS = {'audio/webm': 'matroska', 'audio/ogg': 'ogg', 'audio/wav': 'wav',
            'audio/mp4': 'mov', 'audio/mpeg': 'mp3'}
 REST_CHUNK_SECONDS = 25
+SPEECH_PROVIDER_SLOTS = threading.BoundedSemaphore(2)
 
 
 def decode_audio(audio, media_type, deadline):
@@ -170,53 +173,102 @@ def parse_assessment(raw, reference, duration_ms):
                             duration_ms=duration_ms, segments=[] if reason else segments)
 
 
-def assess_snapshot(snapshot, session_id, settings):
-    refs = json.loads(snapshot).get('audio_references', [])
-    results = []
-    deadline = time.monotonic() + SPEECH_BUDGET_SECONDS
-    for reference in refs:
+def _configured(settings):
+    return (bool(settings.azure_speech_key.get_secret_value())
+            and bool(re.fullmatch(r'[a-z][a-z0-9-]{1,49}', settings.azure_speech_region)))
+
+
+def assess_uploaded_audio(audio, media_type, session_id, turn_id, settings):
+    """Assess one context-free recording immediately after its durable upload.
+
+    Capture remains available when Speech is not configured. Provider failures are
+    saved as an explicit result and an identical upload retry gets another attempt.
+    """
+    reference = {'turn_id': turn_id, 'media_type': media_type, 'size_bytes': len(audio),
+                 'sha256': hashlib.sha256(audio).hexdigest()}
+    try:
+        saved = speech_cache(settings.database_path, session_id, reference)
+    except (sqlite3.Error, OSError):
+        raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
+    if saved is not None and saved.status != 'unavailable':
+        return saved
+
+    if not _configured(settings):
+        assessment = SpeechAssessment(
+            turn_id=turn_id, audio_sha256=reference['sha256'], status='unavailable',
+            reason='not_configured')
         try:
-            saved = speech_cache(settings.database_path, session_id, reference)
-            if saved is not None:
-                results.append(saved)
-                continue
-            audio = load_audio(settings.database_path, session_id, reference)
+            return speech_cache(settings.database_path, session_id, reference, assessment)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
-        if (not settings.azure_speech_key.get_secret_value()
-                or not re.fullmatch(r'[a-z][a-z0-9-]{1,49}', settings.azure_speech_region)):
-            raise HTTPException(503, 'Azure Speech is not configured correctly.')
-        pcm = decode_audio(audio, reference['media_type'], deadline)
-        duration_ms = len(pcm) / 32
-        if duration_ms < 3000:
-            assessment = SpeechAssessment(turn_id=reference['turn_id'], audio_sha256=reference['sha256'],
-                status='insufficient_evidence', reason='too_short', duration_ms=duration_ms)
-        else:
+
+    deadline = time.monotonic() + SPEECH_BUDGET_SECONDS
+    pcm = decode_audio(audio, media_type, deadline)
+    duration_ms = len(pcm) / 32
+    if duration_ms < 3000:
+        assessment = SpeechAssessment(
+            turn_id=turn_id, audio_sha256=reference['sha256'], status='insufficient_evidence',
+            reason='too_short', duration_ms=duration_ms)
+    else:
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not SPEECH_PROVIDER_SLOTS.acquire(timeout=remaining):
+                raise HTTPException(504, 'Speech assessment timed out.')
             try:
                 raw = recognize_audio(pcm, settings, deadline - time.monotonic())
                 assessment = parse_assessment(raw, reference, duration_ms)
-            except HTTPException as error:
-                if error.status_code not in {502, 503, 504}:
-                    raise
-                logging.getLogger('spoken.evaluation').warning(
-                    'speech_assessment_unavailable status=%s', error.status_code)
-                assessment = SpeechAssessment(
-                    turn_id=reference['turn_id'], audio_sha256=reference['sha256'],
-                    status='unavailable', reason='provider_unavailable', duration_ms=duration_ms)
-            except (ValueError, TypeError, KeyError, IndexError, AttributeError):
-                logging.getLogger('spoken.evaluation').warning(
-                    'speech_assessment_unavailable status=invalid_result')
-                assessment = SpeechAssessment(
-                    turn_id=reference['turn_id'], audio_sha256=reference['sha256'],
-                    status='unavailable', reason='provider_unavailable', duration_ms=duration_ms)
+            finally:
+                SPEECH_PROVIDER_SLOTS.release()
+        except HTTPException as error:
+            if error.status_code not in {502, 503, 504}:
+                raise
+            logging.getLogger('spoken.evaluation').warning(
+                'speech_assessment_unavailable status=%s', error.status_code)
+            assessment = SpeechAssessment(
+                turn_id=turn_id, audio_sha256=reference['sha256'], status='unavailable',
+                reason='provider_unavailable', duration_ms=duration_ms)
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+            logging.getLogger('spoken.evaluation').warning(
+                'speech_assessment_unavailable status=invalid_result')
+            assessment = SpeechAssessment(
+                turn_id=turn_id, audio_sha256=reference['sha256'], status='unavailable',
+                reason='provider_unavailable', duration_ms=duration_ms)
+    try:
+        return speech_cache(settings.database_path, session_id, reference, assessment)
+    except (sqlite3.Error, OSError):
+        raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
+
+
+def snapshot_assessment_state(snapshot, session_id, settings):
+    """Return terminal cached results plus audio turns whose upload is still assessing."""
+    results = []
+    pending = []
+    for reference in json.loads(snapshot).get('audio_references', []):
         try:
-            if assessment.status == 'unavailable':
-                results.append(assessment)
-            else:
-                results.append(speech_cache(settings.database_path, session_id, reference, assessment))
+            saved = speech_cache(settings.database_path, session_id, reference)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
-    return results
+        if saved is None:
+            pending.append(reference['turn_id'])
+        else:
+            results.append(saved)
+    return results, pending
+
+
+def summarize_speech(assessments):
+    segments = [segment for assessment in assessments if assessment.status == 'assessed'
+                for segment in assessment.segments]
+    if not assessments:
+        return None
+    average = lambda values: round(sum(values) / len(values)) if values else None
+    return SpeechSummary(
+        assessed_turns=sum(item.status == 'assessed' for item in assessments),
+        total_turns=len(assessments), assessed_segments=len(segments),
+        average_pronunciation=average([item.accuracy_score for item in segments]),
+        average_spoken_fluency=average([item.fluency_score for item in segments]),
+        average_rhythm_and_intonation=average(
+            [item.prosody_score for item in segments if item.prosody_score is not None]),
+    )
 
 
 def speech_context(assessments):
@@ -245,18 +297,8 @@ def speech_context(assessments):
                                                        'error_type': w.error_type[:100]}
                                                       for w in s.words if w.error_type != 'None'][:5]}
                                    for s in assessment.segments[:5]]})
-    average = lambda values: round(sum(values) / len(values)) if values else None
-    assessed_turns = sum(item.status == 'assessed' for item in assessments)
-    overview = {
-        'assessed_turns': assessed_turns,
-        'total_turns': len(assessments),
-        'assessed_segments': len(segments),
-        'average_pronunciation': average([item.accuracy_score for item in segments]),
-        'average_spoken_fluency': average([item.fluency_score for item in segments]),
-        'average_rhythm_and_intonation': average(
-            [item.prosody_score for item in segments if item.prosody_score is not None]),
-        'practice_words': practice_words[:3],
-    }
+    overview = summarize_speech(assessments).model_dump()
+    overview['practice_words'] = practice_words[:3]
     return {'source': 'Azure Speech', 'locale': 'en-US', 'total_turns': len(assessments),
             'overview': overview,
             'note': 'Preview: first 50 turns, first 5 segments and up to 5 flagged words per segment. '

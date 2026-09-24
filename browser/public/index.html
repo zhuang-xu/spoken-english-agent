@@ -3,29 +3,72 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spoken English practice</title>
+  <title>Speakwell — English conversation practice</title>
   <link rel="stylesheet" href="/practice-assets/practice.css">
   <script type="module" src="/practice-assets/practice.mjs"></script>
 </head>
 <body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Speakwell home"><span class="brand-mark">S</span> Speakwell</a>
+    <span class="header-note">Private, guided English practice</span>
+  </header>
   <main>
-    <p class="eyebrow">SPOKEN ENGLISH</p>
-    <h1>Make room for a conversation.</h1>
-    <p>Choose what you want to practice, then allow your microphone to start talking.</p>
+    <section class="hero" aria-labelledby="page-title">
+      <p class="eyebrow">YOUR NEXT CONVERSATION</p>
+      <h1 id="page-title">What would you like to <em>improve?</em></h1>
+      <p class="intro">Choose one speaking outcome. Your practice partner will shape the conversation—and your feedback—around it.</p>
+      <ol class="journey" aria-label="Practice steps">
+        <li class="current"><span>1</span> Choose an outcome</li>
+        <li><span>2</span> Choose a context</li>
+        <li><span>3</span> Practice</li>
+        <li><span>4</span> Get feedback</li>
+      </ol>
+    </section>
     <form id="preferences">
       <details id="setup" open>
-        <summary id="setup-summary">Practice preferences</summary>
+        <summary id="setup-summary">Set up your practice</summary>
       <fieldset id="fields">
-        <label>Speaking goal
-          <select name="speaking_goal" required>
-            <option>Practice explaining my work clearly</option>
-            <option>Build confidence in everyday conversations</option>
-            <option>Prepare for a job interview</option>
-            <option>Speak more fluently with fewer pauses</option>
-            <option>Practice sharing opinions and giving reasons</option>
-            <option>Communicate confidently while traveling</option>
-          </select>
-        </label>
+        <legend>Speaking outcome</legend>
+        <p class="field-intro">Pick the skill you want to move forward today.</p>
+        <div class="outcome-grid">
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Speak more fluently" checked>
+            <span class="outcome-icon" aria-hidden="true">↗</span><span><strong>Speak more fluently</strong><small>Keep ideas flowing naturally</small></span>
+          </label>
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Explain ideas clearly">
+            <span class="outcome-icon" aria-hidden="true">◎</span><span><strong>Explain ideas clearly</strong><small>Structure answers with examples</small></span>
+          </label>
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Speak with less hesitation">
+            <span class="outcome-icon" aria-hidden="true">▶</span><span><strong>Speak with less hesitation</strong><small>Respond with more confidence</small></span>
+          </label>
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Improve pronunciation">
+            <span class="outcome-icon" aria-hidden="true">◖</span><span><strong>Improve pronunciation</strong><small>Sound clearer and more natural</small></span>
+          </label>
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Handle work conversations">
+            <span class="outcome-icon" aria-hidden="true">▣</span><span><strong>Handle work conversations</strong><small>Communicate clearly at work</small></span>
+          </label>
+          <label class="outcome-card">
+            <input type="radio" name="speaking_goal" value="Handle everyday conversations">
+            <span class="outcome-icon" aria-hidden="true">◇</span><span><strong>Handle everyday conversations</strong><small>Feel at ease in daily life</small></span>
+          </label>
+        </div>
+
+        <div class="secondary-fields">
+        <div class="context-field">
+          <span class="label-text">Conversation context <span>(optional)</span></span>
+          <p id="topic-hint" class="field-intro">This is what you’ll talk about—not the skill being assessed.</p>
+          <div class="choice-row" role="radiogroup" aria-describedby="topic-hint">
+            <label><input type="radio" name="context_choice" value="auto" checked> Choose for me</label>
+            <label><input type="radio" name="context_choice" value="custom"> Specify a context</label>
+          </div>
+          <label class="custom-context" hidden>What would you like to talk about?
+            <input name="preferred_topic" maxlength="200" placeholder="e.g. presenting a project update">
+          </label>
+        </div>
         <label>English level
           <select name="level" required>
             <option value="A1">A1 — Beginner</option>
@@ -36,18 +79,6 @@
             <option value="C2">C2 — Proficient</option>
           </select>
         </label>
-        <label>Topic (optional)
-          <select name="preferred_topic" aria-describedby="topic-hint">
-            <option value="">Let the agent choose</option>
-            <option>Work and projects</option>
-            <option>Everyday life</option>
-            <option>Travel and culture</option>
-            <option>Hobbies and interests</option>
-            <option>Technology</option>
-            <option>Job interviews</option>
-          </select>
-          <small id="topic-hint">The agent will choose a topic to match your speaking goal and English level.</small>
-        </label>
         <label>Practice length in minutes
           <select name="session_duration_minutes" required>
             <option value="5">5 minutes</option>
@@ -57,17 +88,18 @@
             <option value="30">30 minutes</option>
           </select>
         </label>
-        <small>A practice preference; End the conversation to save your answers and get feedback.</small>
+        </div>
+        <p class="privacy-note"><span aria-hidden="true">●</span> Your practice is private. End the conversation to save your answers and get feedback.</p>
       </fieldset>
       </details>
       <div class="actions">
-        <button id="start" type="submit">Start conversation</button>
+        <button id="start" type="submit">Start my conversation <span aria-hidden="true">→</span></button>
 
       </div>
     </form>
     <audio id="reply" autoplay hidden></audio>
     <details id="conversation" open>
-      <summary id="transcript-heading">Conversation transcripts</summary>
+      <summary id="transcript-heading">Conversation transcript</summary>
       <p class="hint">Your answers and recordings are saved for feedback. Use headphones to keep the agent’s voice out of your recording.</p>
       <div id="transcripts" role="log" aria-label="Conversation transcripts" aria-live="polite" tabindex="0"><p class="hint">Your conversation will appear here.</p></div>
       <button id="latest" type="button" hidden>Jump to latest</button>

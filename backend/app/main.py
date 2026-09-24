@@ -14,7 +14,7 @@ from app.services.agent_transcripts import capture_agent_transcript
 
 from app.config import Settings, get_settings
 from app.schemas import CreateSessionResponse, EndSessionResponse, SessionCreate, LearnerTranscript, LearnerInputReceipt
-from app.services.learner_inputs import AUDIO_TYPES, MAX_AUDIO_BYTES, capture_input
+from app.services.learner_inputs import AUDIO_TYPES, MAX_AUDIO_BYTES, capture_audio, capture_input
 from app.services.sessions import create_session, end_session, heartbeat_session
 from app.schemas import HeartbeatResponse
 from app.schemas import SessionDataStatus, UploadManifest
@@ -158,7 +158,7 @@ async def upload_learner_audio(
     session_id: UUID, turn_id: UUID, request: Request, response: Response,
     settings: Settings = Depends(get_settings),
 ) -> LearnerInputReceipt:
-    """Upload one complete learner recording; no decoding or transcription is performed."""
+    """Store one learner recording and immediately assess pronunciation and fluency."""
     media_type = request.headers.get("content-type", "").strip().lower()
     if len(media_type) > 200 or media_type.split(";", 1)[0].strip() not in AUDIO_TYPES:
         raise HTTPException(415, "Supported audio Content-Type is required.")
@@ -170,7 +170,7 @@ async def upload_learner_audio(
     if not audio:
         raise HTTPException(422, "Audio must not be empty.")
     receipt, response.status_code = await run_in_threadpool(
-        capture_input, settings, str(session_id), str(turn_id), "audio", bytes(audio), media_type
+        capture_audio, settings, str(session_id), str(turn_id), bytes(audio), media_type
     )
     response.headers["Cache-Control"] = "no-store"
     return receipt
@@ -216,8 +216,8 @@ def upload_agent_transcript(
 EVALUATION_ERRORS = {
     404: {'description': 'Session or evaluation not found'},
     409: {'description': 'Session not ready, evaluation running or attempt superseded'},
-    413: {'description': 'Evaluation snapshot or learner recording too large'},
-    422: {'description': 'Invalid UUID or undecodable learner audio'},
+    413: {'description': 'Evaluation snapshot too large'},
+    422: {'description': 'Invalid UUID'},
     502: {'description': 'Evaluation provider failure or invalid output'},
     503: {'description': 'Evaluation configuration or storage unavailable'},
     504: {'description': 'Evaluation provider timeout'},
@@ -225,10 +225,15 @@ EVALUATION_ERRORS = {
 
 
 @app.post('/sessions/{session_id}/evaluation', response_model=EvaluationResponse,
-          status_code=201, responses={200: {'description': 'Saved result'}, **EVALUATION_ERRORS})
+          status_code=201, responses={
+              200: {'description': 'Saved result'},
+              202: {'description': 'Transcript complete; waiting for Speech turns'},
+              **EVALUATION_ERRORS})
 def evaluate_session(session_id: UUID, response: Response,
                      settings: Settings = Depends(get_settings)) -> EvaluationResponse:
     result, response.status_code = run_evaluation(settings, str(session_id))
+    if response.status_code == 202:
+        response.headers['Retry-After'] = '5'
     response.headers['Cache-Control'] = 'no-store'
     return result
 

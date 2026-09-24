@@ -434,12 +434,14 @@ These are separate from the Azure OpenAI resource credentials. The existing
 created by this implementation. Completed results and transcript-only snapshots
 remain readable without Speech configuration.
 
-The evaluation POST automatically assesses audio included in new ready-session
-snapshots. The manifest must include the learner recordings, which must already
-have been uploaded. The backend verifies each recording's hash and decodes its
-bytes into 16 kHz mono PCM. Supported decodable inputs are WAV, WebM, Ogg, MP4 and
-MPEG audio; mislabeled/corrupt media and files with multiple audio tracks are
-rejected during evaluation. The backend preserves internal pauses. Clients must
+Each audio PUT records a terminal assessment state. When Azure Speech is configured,
+the backend stores the immutable recording, decodes it into 16 kHz mono PCM and
+caches the context-free Speech result. Without configuration it caches an explicit
+`not_configured` unavailable result. The final evaluation POST reads those cached
+results; it does not decode or send audio. Supported inputs
+are WAV, WebM, Ogg, MP4 and MPEG audio; mislabeled/corrupt media and files with
+multiple audio tracks are rejected during upload when Speech is configured. The
+backend preserves internal pauses. Clients must
 record learner-only audio and avoid trimming pauses or mixing in agent playback.
 
 Azure Speech runs unscripted assessment in en-US. Local execution defaults to the
@@ -451,7 +453,9 @@ status, duration, and recognized segments containing 0–100 accuracy, fluency a
 optional prosody scores, word timestamps, and phoneme accuracy. Offsets are relative
 to the uploaded clip, not the session clock. Scores come from Speech; Azure OpenAI
 can explain measured findings and suggest exercises but does not replace scores.
-There is no aggregate pronunciation score for the whole conversation.
+`speech_summary` provides deterministic coverage plus arithmetic mean pronunciation,
+spoken-fluency and optional prosody scores across assessed segments. These application
+averages are not Azure whole-session or certified proficiency scores.
 
 Clips under three seconds, no recognized speech or fewer than five recognized
 words return `insufficient_evidence`, with a reason and no scored segments. These
@@ -461,12 +465,16 @@ usable speech results. Inspect per-turn status to see actual assessment coverage
 Existing completed evaluations are not automatically upgraded; old snapshots retain
 their original inputs and can remain transcript-only.
 
-Assessment allows ten minutes per recording and a shared 120-second wall-clock
-budget for uncached Speech processing per evaluation POST, followed by the existing
-text request. Each completed turn is cached immediately. Invalid audio returns 422;
-excessive duration 413; and missing configuration or storage returns 503. If the
+Assessment allows ten minutes per recording and a 120-second wall-clock budget per
+audio upload. Each process permits two simultaneous Speech provider calls, so extra
+uploads wait within that deadline rather than starting an unbounded provider burst.
+Each turn outcome is cached immediately; the browser allows 130 seconds
+for that request. Invalid audio returns 422 and excessive duration 413 when Speech
+is configured; missing Speech configuration preserves the recording with an
+unavailable state, while storage failure returns 503. If the
 Speech provider, runtime or response fails, the report continues with transcript
-feedback and marks that turn unavailable; pronunciation and spoken fluency remain
+feedback and marks that turn unavailable; an identical audio retry attempts Speech
+again. Pronunciation and spoken fluency remain
 in `not_assessed`. SDK work runs in a child process terminated at the deadline. No
 keys are passed in command arguments, and diagnostic provider details are suppressed.
 
@@ -474,6 +482,15 @@ Browser recording/upload integration, Azure deployment and provider connectivity
 are implemented. Quality calibration and GitHub publication remain pending. The
 hosted REST transport avoids dependence on the Function image's native Speech SDK
 libraries. See [the pronunciation contract](docs/pronunciation-api-contract.md).
+
+Final evaluation uses a staged pipeline. The first Azure OpenAI call evaluates only
+transcript evidence and saves `transcript_result`. If an expected audio assessment
+is still in flight, the API returns 202 with component states and Retry-After rather
+than publishing incomplete feedback. Once Speech is terminal, a smaller synthesis
+call combines the saved transcript result with bounded Speech findings. Synthesis
+retries reuse transcript_result, so grammar analysis and grounded corrections are
+not paid for or generated again. A durable cross-instance queue remains deferred;
+the current Speech concurrency bound is per application process.
 
 
 ### Browser audio assessment workflow

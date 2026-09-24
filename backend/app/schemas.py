@@ -160,6 +160,15 @@ class EvaluationResult(BaseModel):
     corrections: list[EvaluationCorrection] = Field(max_length=10)
 
 
+class EvaluationSynthesis(BaseModel):
+    """Cross-category coaching produced from saved transcript and Speech results."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+    summary: str = Field(min_length=1, max_length=3000)
+    strengths: list[str] = Field(min_length=1, max_length=3)
+    next_steps: list[str] = Field(min_length=1, max_length=3)
+
+
 class SpeechPhoneme(BaseModel):
     model_config = ConfigDict(extra="forbid")
     phoneme: str
@@ -193,14 +202,26 @@ class SpeechAssessment(BaseModel):
     audio_sha256: str
     locale: Literal["en-US"] = "en-US"
     status: Literal["assessed", "insufficient_evidence", "unavailable"]
-    reason: Literal["too_short", "no_recognized_speech", "too_few_words", "provider_unavailable"] | None = None
-    duration_ms: float = Field(gt=0, allow_inf_nan=False)
+    reason: Literal["too_short", "no_recognized_speech", "too_few_words", "provider_unavailable",
+                    "not_configured"] | None = None
+    duration_ms: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     segments: list[SpeechSegment] = Field(default_factory=list)
+
+
+class SpeechSummary(BaseModel):
+    """Deterministic session-level summary of the cached turn assessments."""
+
+    assessed_turns: int = Field(ge=0)
+    total_turns: int = Field(ge=0)
+    assessed_segments: int = Field(ge=0)
+    average_pronunciation: int | None = Field(default=None, ge=0, le=100)
+    average_spoken_fluency: int | None = Field(default=None, ge=0, le=100)
+    average_rhythm_and_intonation: int | None = Field(default=None, ge=0, le=100)
 
 
 class EvaluationResponse(BaseModel):
     session_id: str
-    status: Literal["running", "completed", "failed"]
+    status: Literal["running", "waiting", "completed", "failed"]
     attempt_id: str
     started_at: AwareDatetime
     completed_at: AwareDatetime | None
@@ -209,5 +230,11 @@ class EvaluationResponse(BaseModel):
     input_sha256: str
     result: EvaluationResult | None
     error_code: str | None
+    transcript_status: Literal["pending", "running", "completed", "failed"] = "pending"
+    speech_status: Literal["pending", "running", "completed", "partial", "not_assessed"] = "pending"
+    final_status: Literal["pending", "running", "completed", "failed"] = "pending"
+    transcript_result: EvaluationResult | None = None
+    speech_pending_turn_ids: list[str] = Field(default_factory=list)
     speech_assessments: list[SpeechAssessment] = Field(default_factory=list)
+    speech_summary: SpeechSummary | None = None
     not_assessed: list[str] = Field(default_factory=lambda: ["pronunciation", "spoken_fluency"])

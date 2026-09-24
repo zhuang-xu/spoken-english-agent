@@ -1,5 +1,6 @@
 import json
-from app.services.evaluation_provider import evaluate_snapshot
+from app.services.evaluation_provider import evaluate_snapshot, synthesize_session
+from app.schemas import EvaluationResult
 
 
 def test_azure_protocol(settings, mock_openai_post, evaluation_response):
@@ -19,9 +20,9 @@ def test_azure_protocol(settings, mock_openai_post, evaluation_response):
     assert set(schema['schema']['required']) == set(schema['schema']['properties'])
     assert 'server-secret' not in json.dumps(payload)
     assert 'untrusted' in payload['messages'][0]['content']
-    assert 'one coherent English coaching report' in payload['messages'][0]['content']
-    assert 'Do not produce a separate pronunciation report' in payload['messages'][0]['content']
-    assert '1-3 ranked next_steps' in payload['messages'][0]['content']
+    assert "Evaluate the learner's transcript" in payload['messages'][0]['content']
+    assert 'Do not infer pronunciation' in payload['messages'][0]['content']
+    assert '1-3 ranked, concrete next_steps' in payload['messages'][0]['content']
 
 
 def test_grounded_correction(settings, mock_openai_post, evaluation_payload):
@@ -34,3 +35,33 @@ def test_grounded_correction(settings, mock_openai_post, evaluation_payload):
     result = evaluate_snapshot(json.dumps({'learner_transcripts': [{
         'turn_id': 'turn-1', 'text': 'I build it yesterday.'}]}), 'text', settings)
     assert result.corrections[0].turn_id == 'turn-1'
+
+
+def test_supported_outcome_changes_coaching_lens(settings, mock_openai_post, evaluation_response):
+    mock_openai_post.return_value = evaluation_response
+    snapshot = json.dumps({'preferences': {'speaking_goal': 'Handle work conversations'},
+                           'learner_transcripts': []})
+    evaluate_snapshot(snapshot, 'text', settings)
+    instructions = mock_openai_post.call_args.kwargs['json']['messages'][0]['content']
+    assert 'professional clarity' in instructions
+    assert '30% coherence' in instructions
+    assert 'shared grammar, vocabulary' in instructions
+
+
+def test_final_synthesis_uses_saved_components(settings, mock_openai_post,
+                                               evaluation_payload, synthesis_response):
+    transcript = EvaluationResult.model_validate(evaluation_payload)
+    mock_openai_post.return_value = synthesis_response
+    result = synthesize_session(
+        transcript,
+        {'overview': {'average_pronunciation': 85, 'average_spoken_fluency': 80}},
+        {'speaking_goal': 'Interview practice'}, 'text', settings)
+    payload = mock_openai_post.call_args.kwargs['json']
+    assert payload['response_format']['json_schema']['name'] == 'session_synthesis'
+    assert set(payload['response_format']['json_schema']['schema']['properties']) == {
+        'summary', 'strengths', 'next_steps'}
+    evidence = json.loads(payload['messages'][1]['content'])
+    assert evidence['transcript_evaluation']['grammar'] == evaluation_payload['grammar']
+    assert evidence['speech_findings']['overview']['average_pronunciation'] == 85
+    assert result.grammar == transcript.grammar
+    assert result.corrections == transcript.corrections

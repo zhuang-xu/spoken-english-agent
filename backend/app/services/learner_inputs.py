@@ -1,4 +1,4 @@
-"""Store learner input components without invoking a model or transcribing audio."""
+"""Store learner inputs and assess context-free audio as it arrives."""
 import sqlite3
 
 from fastapi import HTTPException
@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.config import Settings
 from app.schemas import LearnerInputReceipt
 from app.storage.sqlite import store_learner_input
+from app.services.pronunciation import assess_uploaded_audio
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/wav", "audio/mp4", "audio/mpeg"}
@@ -32,3 +33,12 @@ def capture_input(settings: Settings, session_id: str, turn_id: str, component: 
         session_id=session_id, turn_id=turn_id,
         audio_received=audio_received, transcript_received=transcript_received,
     ), 201 if outcome == "created" else 200
+
+
+def capture_audio(settings: Settings, session_id: str, turn_id: str, payload: bytes,
+                  media_type: str) -> tuple[LearnerInputReceipt, int]:
+    """Persist first, then synchronously evaluate pronunciation and fluency."""
+    receipt, status = capture_input(
+        settings, session_id, turn_id, "audio", payload, media_type)
+    assess_uploaded_audio(payload, media_type, session_id, turn_id, settings)
+    return receipt, status

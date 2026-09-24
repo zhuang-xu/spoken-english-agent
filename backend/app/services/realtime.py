@@ -5,9 +5,11 @@ import httpx
 
 from app.config import Settings
 from app.schemas import RealtimeClientCredential, RealtimeSession, SessionCreate
+from app.services.outcomes import outcome_guidance
 
 
 def create_realtime_session(preferences: SessionCreate, settings: Settings) -> RealtimeSession:
+    outcome_instruction = outcome_guidance(preferences.speaking_goal, "conversation")
     response = httpx.post(
         f"{settings.azure_openai_endpoint.rstrip('/')}/openai/v1/realtime/client_secrets",
         headers={"api-key": settings.azure_openai_api_key.get_secret_value()},
@@ -21,6 +23,9 @@ def create_realtime_session(preferences: SessionCreate, settings: Settings) -> R
                     "You are a supportive English speaking practice partner. "
                     "Ask one short question at a time, adapted to the learner's level. "
                     "Begin with a relevant opening question when asked to respond. "
+                    + (f"For this supported speaking outcome: {outcome_instruction} "
+                       if outcome_instruction else "")
+                    +
                     "If preferred_topic is null or blank, choose a concrete topic that fits "
                     "the learner's speaking_goal and level, and start practicing immediately "
                     "without asking the learner to choose a topic. Otherwise use their preferred topic. "

@@ -8,14 +8,18 @@ Scores are formative
 1–5 ratings (1 needs substantial work; 5 consistently effective), not certified
 CEFR levels. Each category can return null when evidence is insufficient.
 Transcript-only snapshots leave pronunciation and spoken fluency unassessed.
-New snapshots with audio use [Azure Speech assessment](pronunciation-api-contract.md);
-raw audio is never sent to the Azure OpenAI text endpoint.
+New snapshots with audio use upload-time [Azure Speech assessment](pronunciation-api-contract.md);
+session completion reads cached Speech results. Raw audio is never sent to the
+Azure OpenAI text endpoint and no Speech call occurs during final evaluation.
 
-- `POST /sessions/{session_id}/evaluation`: no body; synchronously create a result
-  (201), or return the saved completed result (200). A failed attempt can be retried.
+- `POST /sessions/{session_id}/evaluation`: no body; create a final result (201),
+  return the saved result (200), or return persisted component progress (202 with
+  Retry-After: 5) when transcript evaluation is complete but an expected Speech
+  turn has not reached a terminal cached result. A failed attempt can be retried.
 - `GET /sessions/{session_id}/evaluation`: return the saved status/result (200).
-- UUID validation: 422. Missing session or evaluation: 404. Not ready or already
-  running: 409 (running includes Retry-After: 5). Oversized snapshot: 413.
+- UUID validation: 422. Missing session or evaluation: 404. Input not ready or an
+  evaluation attempt already running: 409 (running includes Retry-After: 5).
+  Oversized snapshot: 413.
 - Missing/invalid Azure configuration or storage failure: 503. Azure OpenAI
   rejection, refusal, truncated/malformed output or invalid evidence: 502; text
   provider timeout: 504. Azure Speech provider/runtime failures are represented as
@@ -23,9 +27,13 @@ raw audio is never sent to the Azure OpenAI text endpoint.
 - Success responses use Cache-Control: no-store. Hosted access uses the existing
   Azure Functions key; local routes have no per-user authentication.
 
-Response fields: session_id, status (running/completed/failed), attempt_id,
+Response fields: session_id, status (running/waiting/completed/failed), attempt_id,
 started_at, completed_at (nullable), rubric_version, deployment, input_sha256,
-result (nullable), error_code (nullable), speech_assessments (default empty). Result contains summary; grammar,
+result (nullable), error_code (nullable); transcript_status, speech_status and
+final_status; reusable transcript_result; speech_pending_turn_ids;
+speech_assessments (default empty); and
+speech_summary (nullable deterministic pronunciation/fluency averages and coverage).
+Result contains summary; grammar,
 vocabulary and coherence objects (score and feedback); one to three cross-category
 strengths; one to three ranked cross-category next_steps;
 and corrections (turn_id, original, improved, explanation). Corrections must quote
@@ -40,18 +48,23 @@ the completeness rules in [the completeness contract](session-recovery-and-compl
 Persist one immutable input snapshot per session, its SHA-256, rubric version and
 configured deployment. Snapshot includes preferences, manifest and learner/agent
 transcripts with IDs and timing/playback metadata plus audio hashes/references,
-never credentials or inline audio bytes. Audio bytes are read separately and their
-hashes verified for Speech assessment.
+never credentials or inline audio bytes. Audio hashes link the snapshot to cached
+upload-time Speech assessments; audio bytes are not read during session evaluation.
 Learner entries sort by start time then turn ID; agent entries sort by item/content
 ID; these separate lists do not imply reliable inter-speaker conversation order.
 Reject snapshots over 200,000 UTF-8 bytes rather than silently truncating.
 
 Commit the running reservation before calling Azure; no database lock spans HTTP.
+Persist the transcript result before inspecting the Speech completion barrier. If
+an audio hash has no terminal cache row, save status `waiting` and return 202. A
+later POST claims a new fenced attempt, reuses transcript_result, and performs final
+synthesis when all expected audio hashes have terminal results.
 Concurrent requests cannot start a second live attempt. Failed attempts and running
 attempts older than five minutes may be explicitly retried with a new attempt ID,
 using the original snapshot and deployment. A superseded attempt cannot write its
 result. Retries after crashes may repeat a paid provider call; exactly-once billing
-is not guaranteed. There is no automatic background worker. GET does not retry.
+is not guaranteed. There is no automatic background finalizer; POST advances waiting
+work and GET is read-only.
 Late uploads retain their existing behavior but never change a reserved snapshot.
 Completed results remain retrievable even if later uploads change data readiness.
 
@@ -62,9 +75,14 @@ Use Azure `/openai/v1/chat/completions`, resource `api-key`, a separate
 Use a 60-second HTTP timeout and limit completion output to 4000 tokens. Treat all
 preferences and transcripts as untrusted data, not instructions. Never infer audible
 playback from generated agent text or pronunciation/fluency from transcript timing.
-For rubric `unified-coaching-v3`, Azure Speech remains authoritative for acoustic
-measurements while the text model synthesizes those measurements with grammar,
-vocabulary and coherence in a single summary, strengths list and ranked priorities.
+For rubric `staged-coaching-v4`, the first structured-output call evaluates only
+transcript evidence and grounded corrections. When usable Speech evidence exists,
+a second, smaller structured-output call receives the saved transcript evaluation,
+preferences and bounded Speech findings and emits only final summary, strengths and
+ranked priorities. Grammar, vocabulary, coherence and corrections are copied unchanged
+from transcript_result. Without usable Speech evidence, transcript_result is the final
+result and no synthesis call is made. Azure Speech remains authoritative for acoustic
+measurements.
 It must not emit a separate pronunciation report, invent acoustic claims, or treat
 application averages as certified proficiency or Azure whole-session scores.
 
@@ -77,7 +95,7 @@ text deployment must be configured separately. No resource creation is included.
 The original transcript implementation and acceptance-test mapping are recorded below.
 The pronunciation contract describes the later audio extension, additional error
 codes, per-turn caching and bounded Speech processing before the text provider call.
-Deferred: frontend integration, background queue, automatic retries,
+Deferred: durable cross-instance Speech queue, automatic background finalization,
 re-evaluation/version selection, durable shared hosting storage, per-user access,
 real-provider quality calibration, Azure deployment and GitHub publication.
 
@@ -104,3 +122,14 @@ Python 3.11.6 full backend suite: **161 passed**, one existing Starlette/AnyIO
 deprecation warning. Browser suite: **22 passed**. Dependency consistency and
 `git diff --check` passed. Provider HTTP is mocked; no real evaluation call,
 Azure deployment, resource creation, commit or GitHub push was performed.
+
+## Staged transcript and final synthesis — 2026-09-24
+
+- Added independently persisted transcript, Speech and final states. Transcript
+  evaluation can finish first and return 202 while the final audio result is pending;
+  the next POST reuses it and performs exactly the remaining synthesis stage.
+- Synthesis failures retain transcript_result, so retries do not repeat the transcript
+  provider call. Attempt IDs continue to fence stale writers.
+- `test_transcript_finishes_while_last_speech_turn_is_pending` covers the completion
+  race; `test_final_synthesis_retry_reuses_transcript_result` covers stage reuse;
+  provider tests verify the distinct transcript and synthesis schemas.
