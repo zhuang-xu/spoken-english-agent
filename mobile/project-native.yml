@@ -1,0 +1,11 @@
+name: SpokenAgents
+include:
+  - project.yml
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 153.0.0
+targets:
+  SpokenAgents:
+    dependencies:
+      - package: WebRTC

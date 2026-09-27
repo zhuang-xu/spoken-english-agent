@@ -1,0 +1,55 @@
+name: SpokenAgents
+options:
+  bundleIdPrefix: com.spokenagents
+  deploymentTarget:
+    iOS: '17.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.9'
+    TARGETED_DEVICE_FAMILY: '1'
+targets:
+  SpokenAgents:
+    type: application
+    platform: iOS
+    sources: [SpokenAgents]
+    info:
+      path: SpokenAgents/Info.plist
+      properties:
+        APIBaseURL: $(API_BASE_URL)
+        NSMicrophoneUsageDescription: Spoken Agents uses the microphone for speaking practice.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.spokenagents.app
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ''
+        API_BASE_URL: http://127.0.0.1:8000
+  SpokenAgentsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [SpokenAgentsTests]
+    dependencies:
+      - target: SpokenAgents
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  SpokenAgentsUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [SpokenAgentsUITests]
+    dependencies:
+      - target: SpokenAgents
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  SpokenAgents:
+    build:
+      targets:
+        SpokenAgents: all
+    test:
+      targets:
+        - SpokenAgentsTests
+        - SpokenAgentsUITests

@@ -1,0 +1,565 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1F7D7A03AEBD14F3EBD5AEFF /* SessionAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */; };
+		25722E26D82C5B8320D97EC4 /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76437C8916C74BFB78866665 /* Audio.swift */; };
+		423E804974855AB24581E987 /* SessionAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */; };
+		51C679087A7C3CF7B71433B3 /* CallCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */; };
+		5799ABF3A3057A01898B33C9 /* SDPExchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */; };
+		6DEC30E9F5BF83B250180809 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9EA8B782594B81F824E8A942 /* WebRTC */; };
+		7BA12BFC3380603AA1C6468E /* RealtimeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */; };
+		85EC1CB23124625116EB0541 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */; };
+		AE772BB994AD469C2455A89D /* LaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7A5F53395A190DEBB0B6E /* LaunchTests.swift */; };
+		D53AAB0B64643673FEF59070 /* AudioFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */; };
+		E58411ADA3F562D47ED4FD5B /* CallCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246201C57A363F91DF0A08A5 /* CallCoordinator.swift */; };
+		E70A08CE540CFF7334BCF972 /* SpokenAgentsApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */; };
+		EE03215058EC683553EECADC /* NativeRealtimeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F698F660569D702BBE088342 /* NativeRealtimeTransport.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A1C90386802282E390E6EBD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F3C82D28E366304F548A8780 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EC498FEB8A2557C1242EF631;
+			remoteInfo = SpokenAgents;
+		};
+		9C12E448780BD77E501D0997 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F3C82D28E366304F548A8780 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EC498FEB8A2557C1242EF631;
+			remoteInfo = SpokenAgents;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		11C7A5F53395A190DEBB0B6E /* LaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchTests.swift; sourceTree = "<group>"; };
+		246201C57A363F91DF0A08A5 /* CallCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCoordinator.swift; sourceTree = "<group>"; };
+		2A1824C2BFE9B271C8C37E64 /* SpokenAgents.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SpokenAgents.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAPI.swift; sourceTree = "<group>"; };
+		51913209EDF0C058943552C2 /* SpokenAgentsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SpokenAgentsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFixtureTests.swift; sourceTree = "<group>"; };
+		76437C8916C74BFB78866665 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
+		7EF4ACB34E9747363319DA51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenAgentsApp.swift; sourceTree = "<group>"; };
+		A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCoordinatorTests.swift; sourceTree = "<group>"; };
+		A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAPITests.swift; sourceTree = "<group>"; };
+		B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDPExchange.swift; sourceTree = "<group>"; };
+		C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeTransport.swift; sourceTree = "<group>"; };
+		DFC51B7B93008BBD3C9E1AB9 /* SpokenAgentsTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SpokenAgentsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F698F660569D702BBE088342 /* NativeRealtimeTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRealtimeTransport.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C2BD49F6DFE8F3C7893330B3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6DEC30E9F5BF83B250180809 /* WebRTC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1ED51CC42E94B686322DF702 /* SpokenAgentsUITests */ = {
+			isa = PBXGroup;
+			children = (
+				11C7A5F53395A190DEBB0B6E /* LaunchTests.swift */,
+			);
+			path = SpokenAgentsUITests;
+			sourceTree = "<group>";
+		};
+		5DA05BE5D28AF75804951D56 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2A1824C2BFE9B271C8C37E64 /* SpokenAgents.app */,
+				DFC51B7B93008BBD3C9E1AB9 /* SpokenAgentsTests.xctest */,
+				51913209EDF0C058943552C2 /* SpokenAgentsUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6879FAECCB7FC0C6A74C93DA /* SpokenAgentsTests */ = {
+			isa = PBXGroup;
+			children = (
+				715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */,
+				A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */,
+				A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */,
+			);
+			path = SpokenAgentsTests;
+			sourceTree = "<group>";
+		};
+		9A7E20A3E59D3D85EB9CFBB8 /* SpokenAgents */ = {
+			isa = PBXGroup;
+			children = (
+				76437C8916C74BFB78866665 /* Audio.swift */,
+				246201C57A363F91DF0A08A5 /* CallCoordinator.swift */,
+				2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */,
+				7EF4ACB34E9747363319DA51 /* Info.plist */,
+				F698F660569D702BBE088342 /* NativeRealtimeTransport.swift */,
+				C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */,
+				B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */,
+				3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */,
+				9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */,
+			);
+			path = SpokenAgents;
+			sourceTree = "<group>";
+		};
+		BAEAD0BB8B279D9E7B59D144 = {
+			isa = PBXGroup;
+			children = (
+				9A7E20A3E59D3D85EB9CFBB8 /* SpokenAgents */,
+				6879FAECCB7FC0C6A74C93DA /* SpokenAgentsTests */,
+				1ED51CC42E94B686322DF702 /* SpokenAgentsUITests */,
+				5DA05BE5D28AF75804951D56 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0EF15DBD3C5CD9C5E1A5EC9A /* SpokenAgentsUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 33106E6B1B8EBD220AC12D7E /* Build configuration list for PBXNativeTarget "SpokenAgentsUITests" */;
+			buildPhases = (
+				CE5EDB48ED889621B5AB9896 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0037FB3561827A273FA355AF /* PBXTargetDependency */,
+			);
+			name = SpokenAgentsUITests;
+			packageProductDependencies = (
+			);
+			productName = SpokenAgentsUITests;
+			productReference = 51913209EDF0C058943552C2 /* SpokenAgentsUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		63B7E03ACB56B642983EB5EB /* SpokenAgentsTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 44F0648E21B895747D551668 /* Build configuration list for PBXNativeTarget "SpokenAgentsTests" */;
+			buildPhases = (
+				085F86CC7ED9F10C74872F1C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B9A42AA91CE4DED34CA997E4 /* PBXTargetDependency */,
+			);
+			name = SpokenAgentsTests;
+			packageProductDependencies = (
+			);
+			productName = SpokenAgentsTests;
+			productReference = DFC51B7B93008BBD3C9E1AB9 /* SpokenAgentsTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		EC498FEB8A2557C1242EF631 /* SpokenAgents */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B59F11EA9264E7967FAAB13C /* Build configuration list for PBXNativeTarget "SpokenAgents" */;
+			buildPhases = (
+				E1A637654B9645EB7CE19170 /* Sources */,
+				C2BD49F6DFE8F3C7893330B3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SpokenAgents;
+			packageProductDependencies = (
+				9EA8B782594B81F824E8A942 /* WebRTC */,
+			);
+			productName = SpokenAgents;
+			productReference = 2A1824C2BFE9B271C8C37E64 /* SpokenAgents.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F3C82D28E366304F548A8780 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					0EF15DBD3C5CD9C5E1A5EC9A = {
+						TestTargetID = EC498FEB8A2557C1242EF631;
+					};
+					EC498FEB8A2557C1242EF631 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 2EE9FF3FD8F538C852CEC881 /* Build configuration list for PBXProject "SpokenAgents" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BAEAD0BB8B279D9E7B59D144;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BB7553E0C9865B179AF4E5B1 /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5DA05BE5D28AF75804951D56 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EC498FEB8A2557C1242EF631 /* SpokenAgents */,
+				63B7E03ACB56B642983EB5EB /* SpokenAgentsTests */,
+				0EF15DBD3C5CD9C5E1A5EC9A /* SpokenAgentsUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		085F86CC7ED9F10C74872F1C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D53AAB0B64643673FEF59070 /* AudioFixtureTests.swift in Sources */,
+				51C679087A7C3CF7B71433B3 /* CallCoordinatorTests.swift in Sources */,
+				423E804974855AB24581E987 /* SessionAPITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE5EDB48ED889621B5AB9896 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE772BB994AD469C2455A89D /* LaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1A637654B9645EB7CE19170 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				25722E26D82C5B8320D97EC4 /* Audio.swift in Sources */,
+				E58411ADA3F562D47ED4FD5B /* CallCoordinator.swift in Sources */,
+				85EC1CB23124625116EB0541 /* ContentView.swift in Sources */,
+				EE03215058EC683553EECADC /* NativeRealtimeTransport.swift in Sources */,
+				7BA12BFC3380603AA1C6468E /* RealtimeTransport.swift in Sources */,
+				5799ABF3A3057A01898B33C9 /* SDPExchange.swift in Sources */,
+				1F7D7A03AEBD14F3EBD5AEFF /* SessionAPI.swift in Sources */,
+				E70A08CE540CFF7334BCF972 /* SpokenAgentsApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0037FB3561827A273FA355AF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EC498FEB8A2557C1242EF631 /* SpokenAgents */;
+			targetProxy = 9C12E448780BD77E501D0997 /* PBXContainerItemProxy */;
+		};
+		B9A42AA91CE4DED34CA997E4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EC498FEB8A2557C1242EF631 /* SpokenAgents */;
+			targetProxy = 3A1C90386802282E390E6EBD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3659A910FE724D229F5D60C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				API_BASE_URL = "http://127.0.0.1:8000";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = SpokenAgents/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		4C2600CCA827A55330027767 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.SpokenAgentsTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SpokenAgents.app/SpokenAgents";
+			};
+			name = Debug;
+		};
+		558B728A30D54ADF68B955A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		6735DD04BA9A4D4EC043E2FA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.SpokenAgentsUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SpokenAgents;
+			};
+			name = Release;
+		};
+		6FC02DEE8722795BABDF4C8A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		84BB10FF3D1AB787CA4B56C6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				API_BASE_URL = "http://127.0.0.1:8000";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = SpokenAgents/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C1C48124B83DD6DC7436D97B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.SpokenAgentsTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SpokenAgents.app/SpokenAgents";
+			};
+			name = Release;
+		};
+		E092F4F5B34A00999D05877B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.spokenagents.SpokenAgentsUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SpokenAgents;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2EE9FF3FD8F538C852CEC881 /* Build configuration list for PBXProject "SpokenAgents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6FC02DEE8722795BABDF4C8A /* Debug */,
+				558B728A30D54ADF68B955A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		33106E6B1B8EBD220AC12D7E /* Build configuration list for PBXNativeTarget "SpokenAgentsUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E092F4F5B34A00999D05877B /* Debug */,
+				6735DD04BA9A4D4EC043E2FA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		44F0648E21B895747D551668 /* Build configuration list for PBXNativeTarget "SpokenAgentsTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4C2600CCA827A55330027767 /* Debug */,
+				C1C48124B83DD6DC7436D97B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B59F11EA9264E7967FAAB13C /* Build configuration list for PBXNativeTarget "SpokenAgents" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				84BB10FF3D1AB787CA4B56C6 /* Debug */,
+				3659A910FE724D229F5D60C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BB7553E0C9865B179AF4E5B1 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 153.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9EA8B782594B81F824E8A942 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB7553E0C9865B179AF4E5B1 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F3C82D28E366304F548A8780 /* Project object */;
+}
