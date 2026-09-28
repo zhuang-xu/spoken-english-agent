@@ -118,7 +118,7 @@ device cases.
 
 ### Phase 2 verification — 2026-09-28
 
-**Completed at the simulator gate.** The foreground practice screen validates and
+**Completed at the simulator gate.** Implementation commit `605a35f`. The foreground practice screen validates and
 trims setup values, keeps turn and output controls visible, displays final learner
 and uniquely identified agent transcript parts, and distinguishes connection,
 recording, transcription, finishing, and ended states. The coordinator sends
