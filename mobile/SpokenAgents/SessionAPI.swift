@@ -6,6 +6,23 @@ struct SessionPreferences: Encodable, Equatable {
     let preferredTopic: String?
     let sessionDurationMinutes: Int
 
+    var validationMessage: String? {
+        let goal = speakingGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topic = preferredTopic?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !(2...500).contains(goal.count) { return "Speaking goal must be 2–500 characters." }
+        if !["A1", "A2", "B1", "B2", "C1", "C2"].contains(level) { return "Choose a CEFR level." }
+        if let topic, !(2...200).contains(topic.count) { return "Topic must be 2–200 characters." }
+        if !(1...120).contains(sessionDurationMinutes) { return "Duration must be 1–120 minutes." }
+        return nil
+    }
+
+    var normalized: Self {
+        let topic = preferredTopic?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self(speakingGoal: speakingGoal.trimmingCharacters(in: .whitespacesAndNewlines),
+                    level: level, preferredTopic: topic?.isEmpty == true ? nil : topic,
+                    sessionDurationMinutes: sessionDurationMinutes)
+    }
+
     enum CodingKeys: String, CodingKey {
         case speakingGoal = "speaking_goal"
         case level
@@ -58,6 +75,7 @@ enum BackendFailure: Error, Equatable {
 
 protocol BackendServing {
     func createSession(_ preferences: SessionPreferences, key: UUID) async throws -> SessionStart
+    func heartbeat(_ id: UUID) async throws
     func endSession(_ id: UUID) async throws
 }
 
@@ -95,5 +113,16 @@ struct HTTPBackendClient: BackendServing {
         let (_, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw BackendFailure.invalidResponse }
         guard response.statusCode == 200 else { throw BackendFailure.status(response.statusCode) }
+    }
+
+    func heartbeat(_ id: UUID) async throws {
+        var request = URLRequest(url: baseURL.appending(path: "sessions/\(id.uuidString)/heartbeat"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (_, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+            throw BackendFailure.unavailable
+        }
     }
 }

@@ -17,6 +17,78 @@ final class CallCoordinatorTests: XCTestCase {
         XCTAssertEqual(transport.connectCount, 0)
     }
 
+    func testInvalidSetupNeverRequestsPermissionOrSession() async {
+        let backend = FakeBackend()
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: FakeTransport(), recorder: FakeRecorder())
+        await call.start(preferences: SessionPreferences(speakingGoal: " ", level: "B1",
+                                                       preferredTopic: nil, sessionDurationMinutes: 10))
+        XCTAssertEqual(call.phase, .idle)
+        XCTAssertEqual(backend.createCount, 0)
+    }
+
+    func testAgentPartsAreIdentifiedAndDeduplicated() async {
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: FakeBackend(), permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder())
+        await call.start(preferences: preferences)
+        let part = RealtimeEvent(type: "response.output_audio_transcript.done", itemID: "agent-1",
+                                 transcript: "Hello", contentIndex: 0, responseID: "response-1")
+        transport.emit(part)
+        transport.emit(part)
+        await Task.yield()
+        XCTAssertEqual(call.parts.count, 1)
+        XCTAssertEqual(call.parts.first?.id, "agent-1/0")
+        XCTAssertEqual(call.parts.first?.playback, .unknown)
+    }
+
+    func testInterruptionEndsOnceAndRejectsLateEvents() async {
+        let backend = FakeBackend()
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder())
+        await call.start(preferences: preferences)
+        let callback = transport.onEvent
+        await call.stopForInterruption("Interrupted")
+        await call.stopForInterruption("Interrupted again")
+        callback?(RealtimeEvent(type: "session.updated", turnDetectionDisabled: true))
+        await Task.yield()
+        XCTAssertEqual(call.phase, .failed)
+        XCTAssertEqual(backend.endCount, 1)
+        XCTAssertEqual(transport.closeCount, 1)
+    }
+
+    func testDisconnectDuringConnectionDoesNotCloseTwiceOrRevive() async {
+        let backend = FakeBackend()
+        let transport = FakeTransport()
+        var finishConnect: CheckedContinuation<Void, Never>?
+        transport.onConnect = { await withCheckedContinuation { finishConnect = $0 } }
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder())
+        let starting = Task { await call.start(preferences: preferences) }
+        while finishConnect == nil { await Task.yield() }
+        await call.disconnect()
+        finishConnect?.resume()
+        await starting.value
+        XCTAssertEqual(call.phase, .idle)
+        XCTAssertEqual(backend.endCount, 1)
+        XCTAssertEqual(transport.closeCount, 1)
+    }
+
+    func testHeartbeatStopsAfterDisconnect() async throws {
+        let backend = FakeBackend()
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder(), heartbeatNanoseconds: 1_000_000)
+        await call.start(preferences: preferences)
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertGreaterThan(backend.heartbeatCount, 0)
+        await call.disconnect()
+        let count = backend.heartbeatCount
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertEqual(backend.heartbeatCount, count)
+    }
+
     func testConnectManualTurnAndCorrelateTranscript() async {
         let backend = FakeBackend()
         let transport = FakeTransport()
@@ -159,6 +231,7 @@ private struct FakePermission: MicrophonePermissionProviding {
 private final class FakeBackend: BackendServing {
     var createCount = 0
     var endCount = 0
+    var heartbeatCount = 0
     var key: UUID?
     var returnCredential = true
 
@@ -175,6 +248,7 @@ private final class FakeBackend: BackendServing {
     }
 
     func endSession(_ id: UUID) async throws { endCount += 1 }
+    func heartbeat(_ id: UUID) async throws { heartbeatCount += 1 }
 }
 
 private final class FakeTransport: RealtimeTransporting {
@@ -184,13 +258,16 @@ private final class FakeTransport: RealtimeTransporting {
     var connectError: Error?
     var inputEnabled = false
     var sent: [[String: Any]] = []
+    var onConnect: (() async throws -> Void)?
 
     func connect(url: URL, credential: String) async throws {
         connectCount += 1
+        try await onConnect?()
         if let connectError { throw connectError }
     }
     func send(_ payload: [String: Any]) throws { sent.append(payload) }
     func setInputEnabled(_ enabled: Bool) { inputEnabled = enabled }
+    func setSpeakerEnabled(_ enabled: Bool) throws {}
     func close() { closeCount += 1 }
     func emit(_ event: RealtimeEvent) { onEvent?(event) }
 }

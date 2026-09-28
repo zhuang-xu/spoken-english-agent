@@ -1,6 +1,6 @@
 # iOS app implementation plan
 
-**Status:** Phase 1 completed at the simulator gate; Phase 2 is next.\
+**Status:** Phases 0–2 completed at their simulator gates; Phase 3 is next.\
 **Source:** [iOS app design](ios-app-design.md).\
 **Scope:** One foreground speaking practice at a time on a physical iPhone, with local history and an offline-readable coaching report.
 
@@ -115,3 +115,34 @@ WebRTC peer, and provider behavior await the Phase 5 physical-device pass. The
 [integration decisions and device matrix](ios-integration-decisions.md) record
 the pinned distribution, audio and storage policies, WAV fixture, and final
 device cases.
+
+### Phase 2 verification — 2026-09-28
+
+**Completed at the simulator gate.** The foreground practice screen validates and
+trims setup values, keeps turn and output controls visible, displays final learner
+and uniquely identified agent transcript parts, and distinguishes connection,
+recording, transcription, finishing, and ended states. The coordinator sends
+heartbeats while a backend session is active and invalidates callbacks on
+disconnect, interruption, route change, or backgrounding. It ends known backend
+sessions and closes media once. Agent playback remains `unknown` when playback
+cannot be observed. The **End & get feedback** action ends the practice; durable
+saving and evaluation are scheduled for Phases 3 and 4, so it currently explains
+that feedback is pending rather than showing a report.
+
+Xcode 27.0, iPhone 17 simulator (iOS 27.0): the shared scheme built; 19 unit/UI
+tests passed, zero failed; the app installed and launched as process 42060.
+The test set includes invalid setup, permission denial, connection failure,
+manual turn and transcript correlation, duplicate agent parts, heartbeat stop,
+interruption, late callbacks, and disconnect during a pending connection. No
+backend deployment was used. Commands from `mobile/` used the cached package
+directory and a temporary derived-data directory:
+
+```sh
+xcodebuild -project SpokenAgents.xcodeproj -scheme SpokenAgents -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath /private/tmp/spoken-agents-phase2-derived -clonedSourcePackagesDirPath /private/tmp/spoken-agents-packages -disableAutomaticPackageResolution CODE_SIGNING_ALLOWED=NO test -quiet
+xcrun simctl install 38DB423B-15D1-46FD-820D-DC3EE42077AE /private/tmp/spoken-agents-phase2-derived/Build/Products/Debug-iphonesimulator/SpokenAgents.app
+xcrun simctl launch 38DB423B-15D1-46FD-820D-DC3EE42077AE com.spokenagents.app
+```
+
+Live route, interruption, concurrent capture, and playback observations remain
+for the Phase 5 physical-device pass. This implementation has no durable local
+history or upload journal yet; those are Phase 3 work.

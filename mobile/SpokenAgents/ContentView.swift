@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct ContentView: View {
@@ -6,6 +7,12 @@ struct ContentView: View {
     @State private var level = "B1"
     @State private var topic = ""
     @State private var duration = 10
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var preferences: SessionPreferences {
+        SessionPreferences(speakingGoal: goal, level: level, preferredTopic: topic.isEmpty ? nil : topic,
+                           sessionDurationMinutes: duration).normalized
+    }
 
     var body: some View {
         NavigationStack {
@@ -17,17 +24,9 @@ struct ContentView: View {
                     }
                     TextField("Topic (agent chooses if blank)", text: $topic)
                     Stepper("\(duration) minutes", value: $duration, in: 1...120)
-                    Button("Connect") {
-                        Task {
-                            await call.start(preferences: SessionPreferences(
-                                speakingGoal: goal,
-                                level: level,
-                                preferredTopic: topic.isEmpty ? nil : topic,
-                                sessionDurationMinutes: duration
-                            ))
-                        }
-                    }
-                    .disabled(call.phase != .idle && call.phase != .failed)
+                    if let error = preferences.validationMessage { Text(error).foregroundStyle(.red) }
+                    Button("Connect") { Task { await call.start(preferences: preferences) } }
+                        .disabled(preferences.validationMessage != nil || ![.idle, .failed, .completed].contains(call.phase))
                 }
 
                 Section("Conversation") {
@@ -38,12 +37,33 @@ struct ContentView: View {
                         .disabled(call.phase != .ready)
                     Button("Finish turn") { Task { await call.finishTurn() } }
                         .disabled(call.phase != .recording)
+                    Button(call.speakerEnabled ? "Use current audio route" : "Use speaker") { call.toggleSpeaker() }
+                        .disabled(![.ready, .recording, .waitingForTranscript].contains(call.phase))
+                    Button("End & get feedback") { Task { await call.endAndGetFeedback() } }
+                        .disabled(![.connecting, .ready, .preparingTurn, .recording, .waitingForTranscript].contains(call.phase))
                     Button("Disconnect", role: .destructive) { Task { await call.disconnect() } }
-                        .disabled(call.phase == .idle)
-                    ForEach(call.transcripts, id: \.self) { Text($0) }
+                        .disabled(call.phase == .idle || call.phase == .completed)
+                    if call.phase == .waitingForTranscript { ProgressView("Transcribing") }
+                    if call.phase == .finishing { ProgressView("Ending session") }
+                    ForEach(call.parts) { part in
+                        Text("\(part.speaker): \(part.text)")
+                    }
                 }
             }
             .navigationTitle("Spoken Agents")
+            .onChange(of: scenePhase) { _, next in
+                if next == .background { Task { await call.stopForInterruption("Practice stopped in the background.") } }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in
+                Task { await call.stopForInterruption("Practice stopped by an audio interruption.") }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+                let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                if raw != AVAudioSession.RouteChangeReason.override.rawValue &&
+                   raw != AVAudioSession.RouteChangeReason.categoryChange.rawValue {
+                    Task { await call.stopForInterruption("Audio route changed. Start a new practice.") }
+                }
+            }
         }
     }
 }

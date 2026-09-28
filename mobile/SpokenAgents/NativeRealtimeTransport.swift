@@ -12,6 +12,7 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
     private var inputTrack: RTCAudioTrack?
     private var opening: CheckedContinuation<Void, Error>?
     private var generation = UUID()
+    private var audioSessionActive = false
     private let sdp = HTTPSDPExchanger()
 
     func connect(url: URL, credential: String) async throws {
@@ -20,6 +21,7 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         let audio = AVAudioSession.sharedInstance()
         try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try audio.setActive(true)
+        audioSessionActive = true
 
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
@@ -74,7 +76,12 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
 
     func setInputEnabled(_ enabled: Bool) { inputTrack?.isEnabled = enabled }
 
+    func setSpeakerEnabled(_ enabled: Bool) throws {
+        try AVAudioSession.sharedInstance().overrideOutputAudioPort(enabled ? .speaker : .none)
+    }
+
     func close() {
+        guard audioSessionActive || peer != nil || channel != nil || opening != nil else { return }
         generation = UUID()
         failOpening(CancellationError())
         inputTrack?.isEnabled = false
@@ -84,7 +91,10 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         channel = nil
         peer = nil
         inputTrack = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if audioSessionActive {
+            audioSessionActive = false
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     private func setLocal(_ description: RTCSessionDescription, on peer: RTCPeerConnection) async throws {
@@ -160,6 +170,7 @@ final class NativeRealtimeTransport: RealtimeTransporting {
     func connect(url: URL, credential: String) async throws { throw RealtimeFailure.dependencyUnavailable }
     func send(_ payload: [String: Any]) throws { throw RealtimeFailure.channelUnavailable }
     func setInputEnabled(_ enabled: Bool) {}
+    func setSpeakerEnabled(_ enabled: Bool) throws {}
     func close() {}
 }
 #endif
