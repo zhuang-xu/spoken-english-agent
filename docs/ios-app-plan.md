@@ -160,11 +160,12 @@ moved before its journal row was saved and marks missing or corrupt pending data
 incomplete. An interrupted active practice cannot reopen its old media session.
 
 Xcode 27.0, iPhone 18 Pro simulator (iOS 27.0): the shared scheme built and
-passed **26 tests, zero failed**. The app installed and launched as process 1078.
+passed **27 tests, zero failed**. The app installed and launched as process 1078.
 Tests reopened multiple stored practices and a cached report in date order,
 switched account partitions, checked duplicate journal items and receipts,
 recovered an orphaned audio file, detected missing audio and a corrupt cached report, preserved bytes across
-a 409 and a successful retry, and exercised coordinator events through the store.
+a 409 and a successful retry, exercised coordinator events through the store,
+and opened History from the practice screen in a UI test.
 No backend deployment was used. Commands from `mobile/`:
 
 ```sh
