@@ -1,6 +1,6 @@
 # iOS app implementation plan
 
-**Status:** Phases 0–2 completed at their simulator gates; Phase 3 is next.\
+**Status:** Phases 0–3 completed at their simulator gates; Phase 4 is next.\
 **Source:** [iOS app design](ios-app-design.md).\
 **Scope:** One foreground speaking practice at a time on a physical iPhone, with local history and an offline-readable coaching report.
 
@@ -146,3 +146,34 @@ xcrun simctl launch 38DB423B-15D1-46FD-820D-DC3EE42077AE com.spokenagents.app
 Live route, interruption, concurrent capture, and playback observations remain
 for the Phase 5 physical-device pass. This implementation has no durable local
 history or upload journal yet; those are Phase 3 work.
+
+### Phase 3 verification — 2026-09-29
+
+**Completed at the simulator gate.** The SwiftData store saves the session ID and
+idempotency key after creation, preferences, status, client clock offsets, final
+conversation parts, protected WAV file references, immutable JSON upload bytes,
+SHA-256 hashes, receipts, and a full cached report. History reads local records
+newest first, opens conversation and cached summary offline, retries pending
+uploads with original bytes, and deletes local records and audio. Store queries
+partition records by account ID. Launch reconciliation recovers an audio file
+moved before its journal row was saved and marks missing or corrupt pending data
+incomplete. An interrupted active practice cannot reopen its old media session.
+
+Xcode 27.0, iPhone 18 Pro simulator (iOS 27.0): the shared scheme built and
+passed **26 tests, zero failed**. The app installed and launched as process 1078.
+Tests reopened multiple stored practices and a cached report in date order,
+switched account partitions, checked duplicate journal items and receipts,
+recovered an orphaned audio file, detected missing audio and a corrupt cached report, preserved bytes across
+a 409 and a successful retry, and exercised coordinator events through the store.
+No backend deployment was used. Commands from `mobile/`:
+
+```sh
+xcodegen generate --spec project-native.yml
+xcodebuild -project SpokenAgents.xcodeproj -scheme SpokenAgents -destination 'platform=iOS Simulator,id=67F852BC-E504-4F4B-91BD-D2ED3D42D141' -derivedDataPath /private/tmp/spoken-agents-phase3-derived -clonedSourcePackagesDirPath /private/tmp/spoken-agents-packages -disableAutomaticPackageResolution -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test -quiet
+xcrun simctl install 67F852BC-E504-4F4B-91BD-D2ED3D42D141 /private/tmp/spoken-agents-phase3-derived/Build/Products/Debug-iphonesimulator/SpokenAgents.app
+xcrun simctl launch 67F852BC-E504-4F4B-91BD-D2ED3D42D141 com.spokenagents.app
+```
+
+Implementation commit: `11c52ee`. Phase 4 still owns the immutable final manifest,
+completeness check, evaluation workflow, and full coaching presentation. Device
+audio and hosted behavior remain Phase 5 checks.
