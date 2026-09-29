@@ -1,12 +1,15 @@
 # iOS client
 
-Phase 2 is complete at the simulator gate. The checked-in `SpokenAgents.xcodeproj`
+Phase 3 is complete at the simulator gate. The checked-in `SpokenAgents.xcodeproj`
 has an iPhone SwiftUI app, unit tests, UI tests, a shared scheme, and the pinned
 native WebRTC package. Its call coordinator, backend client, SDP exchange,
 permission flow, manual-turn event handling, and WAV recorder are exercised with
-fakes. The foreground practice loop now validates setup, shows transcript parts,
-sends heartbeats, and handles cancellation and audio interruptions. Durable
-capture, history, uploads, and feedback remain for Phases 3 and 4.
+fakes. The foreground practice loop validates setup, shows transcript parts,
+sends heartbeats, and handles cancellation and audio interruptions. A SwiftData
+store now keeps sessions, transcript parts, protected turn audio, an immutable
+upload journal, and cached reports. History opens local practices offline and
+can retry pending component uploads. Final manifest and coaching evaluation
+remain Phase 4 work.
 
 ## Build, test, and run
 

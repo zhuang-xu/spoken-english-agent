@@ -1,7 +1,7 @@
 # iOS integration decisions and device matrix
 
-**Recorded:** 2026-09-27. **Implementation status:** Phase 1 simulator gate passed;
-device behavior and local persistence are pending later phases.
+**Recorded:** 2026-09-27. **Implementation status:** Phase 3 simulator gate passed;
+device behavior and hosted authentication remain pending later phases.
 
 ## Integration choices
 
@@ -10,7 +10,7 @@ device behavior and local persistence are pending later phases.
 | Minimum OS and storage | iOS 17.0; use SwiftData for the Phase 3 local store. Xcode 27.0 built and tested the app on iOS 27.0 simulator. Migration behavior remains unverified. |
 | Native media | Swift Package Manager pins `stasel/WebRTC` 153.0.0 in `mobile/project-native.yml` and the checked-in project. Its package declares iOS 10 as its library minimum; the app minimum is iOS 17. The downloaded XCFramework is about 97 MiB on disk, with a 12 MiB iOS arm64 framework. The checked-out license is BSD 3-Clause with bundled WebRTC notices. Xcode 27.0 compiled and linked it; live peer compatibility is a device check. |
 | Learner audio | WebRTC owns the local audio track. `AVAudioRecorder` writes a separate 16 kHz, mono, 16-bit PCM WAV for each manual turn within the same `AVAudioSession`. The native test decodes a matching one-second WAV fixture. A recording is rejected if it exceeds the backend's 10 MiB per-turn limit. Concurrent capture and microphone isolation require the device matrix below. A single turn should be capped at five minutes before release at this format. |
-| Local journal | Phase 3 will cap pending audio at 200 MiB per account and each turn at 10 MiB. Pending audio stays until an upload is acknowledged and the final evaluation is saved; acknowledged audio can then be removed. Keep transcript and report until the learner deletes them. Exclude the database and audio from cloud backup, protect files on device, and partition records by authenticated account. These are implementation requirements, not current app behavior. |
+| Local journal | Phase 3 caps pending audio at 200 MiB per account and each turn at 10 MiB. Pending audio stays until a later evaluation cleanup or local deletion. The SwiftData store and audio directory use file protection and backup exclusion, and records are partitioned by account ID. Native sign-in and automatic post-evaluation audio cleanup remain later-phase work. |
 | Configuration | `API_BASE_URL` is nonsecret build configuration. The short-lived Realtime credential stays in memory. No Function key or provider secret belongs in the app. |
 
 ## Consolidated physical iPhone pass for Phase 5

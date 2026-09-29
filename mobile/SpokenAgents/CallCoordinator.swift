@@ -42,10 +42,13 @@ final class CallCoordinator: ObservableObject {
     private let permission: MicrophonePermissionProviding
     private let transport: RealtimeTransporting
     private let recorder: TurnRecording
+    private let store: PracticeStore?
     private let clearTimeoutNanoseconds: UInt64
     private let heartbeatNanoseconds: UInt64
     private var attempt = UUID()
     private var sessionID: UUID?
+    private var practiceID: UUID?
+    private var practiceStartedAt: Date?
     private var clearContinuation: CheckedContinuation<Bool, Never>?
     private var turnID: UUID?
     private var committedItemID: String?
@@ -57,12 +60,14 @@ final class CallCoordinator: ObservableObject {
 
     init(backend: BackendServing, permission: MicrophonePermissionProviding,
          transport: RealtimeTransporting, recorder: TurnRecording,
+         store: PracticeStore? = nil,
          clearTimeoutNanoseconds: UInt64 = 5_000_000_000,
          heartbeatNanoseconds: UInt64 = 30_000_000_000) {
         self.backend = backend
         self.permission = permission
         self.transport = transport
         self.recorder = recorder
+        self.store = store
         self.clearTimeoutNanoseconds = clearTimeoutNanoseconds
         self.heartbeatNanoseconds = heartbeatNanoseconds
     }
@@ -91,6 +96,11 @@ final class CallCoordinator: ObservableObject {
                 return
             }
             sessionID = result.session.id
+            if let store {
+                try store.create(id: current, sessionID: result.session.id, key: current, preferences: preferences)
+                practiceID = current
+                practiceStartedAt = Date()
+            }
             startHeartbeat(for: current, sessionID: result.session.id)
             guard let realtime = result.realtime, realtime.clientCredential.isValid else {
                 throw CallFailure.credentialUnavailable
@@ -145,6 +155,9 @@ final class CallCoordinator: ObservableObject {
             guard attempt == current else { return }
             guard cleared else { phase = .ready; message = "Could not prepare the turn. Try again."; return }
             let id = UUID()
+            if let practiceID {
+                try store?.savePart(id: id.uuidString, practiceID: practiceID, speaker: "You", text: "", offsetMilliseconds: offset())
+            }
             try recorder.start(turnID: id)
             turnID = id
             committedItemID = nil
@@ -163,6 +176,10 @@ final class CallCoordinator: ObservableObject {
         transport.setInputEnabled(false)
         do {
             lastRecordingURL = try recorder.stop()
+            if let practiceID, let turnID, let lastRecordingURL {
+                try store?.queueAudio(turnID: turnID, practiceID: practiceID, source: lastRecordingURL)
+                self.lastRecordingURL = nil
+            }
             phase = .waitingForTranscript
             try transport.send(["type": "input_audio_buffer.commit"])
             try transport.send(["type": "response.create"])
@@ -190,9 +207,11 @@ final class CallCoordinator: ObservableObject {
         guard phase != .failed else { return }
         phase = .finishing
         attempt = UUID()
-        await stopCurrent()
+        await stopCurrent(status: "ended")
         phase = .completed
-        message = "Practice ended. Feedback saving is planned for Phase 4."
+        message = store?.practices.first(where: { $0.id == current })?.status == "incomplete"
+            ? "Practice saved with missing data. Open History to review and retry."
+            : "Practice saved on this device. Feedback is pending."
     }
 
     func stopForInterruption(_ reason: String) async {
@@ -238,6 +257,21 @@ final class CallCoordinator: ObservableObject {
                   committedItemID == event.itemID else { return }
             if let text = event.transcript?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
                let turnID, seenLearnerItems.insert(committedItemID).inserted {
+                if let practiceID {
+                    do {
+                        let start = store?.parts.first { $0.id == turnID.uuidString && $0.practiceID == practiceID }?.offsetMilliseconds ?? 0
+                        let payload: [String: Any] = ["text": text, "start_ms": start,
+                                                      "end_ms": max(start + 1, offset()), "provider_item_id": committedItemID]
+                        let bytes = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+                        try store?.queuePayload(id: "transcript/\(turnID.uuidString)", practiceID: practiceID,
+                                                kind: "learnerTranscript", bytes: bytes, contentType: "application/json")
+                        try store?.savePart(id: turnID.uuidString, practiceID: practiceID, speaker: "You", text: text, offsetMilliseconds: start)
+                    }
+                    catch {
+                        try? store?.setStatus("incomplete", for: practiceID, issue: "Transcript could not be saved.")
+                        message = "Transcript could not be saved on this device."
+                    }
+                }
                 transcripts.append("You: \(text)")
                 parts.append(ConversationPart(id: turnID.uuidString, speaker: "You", text: text, playback: .completed))
             }
@@ -250,6 +284,20 @@ final class CallCoordinator: ObservableObject {
                   !text.isEmpty else { return }
             let key = "\(itemID)/\(index)"
             if agentParts.insert(key).inserted {
+                if let practiceID {
+                    do {
+                        let payload: [String: Any] = ["text": text, "response_id": event.responseID ?? "",
+                                                      "playback_status": "unknown"]
+                        let bytes = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+                        try store?.queuePayload(id: "agent/\(key)", practiceID: practiceID,
+                                                kind: "agentTranscript", bytes: bytes, contentType: "application/json")
+                        try store?.savePart(id: key, practiceID: practiceID, speaker: "Agent", text: text, offsetMilliseconds: offset())
+                    }
+                    catch {
+                        try? store?.setStatus("incomplete", for: practiceID, issue: "Transcript could not be saved.")
+                        message = "Transcript could not be saved on this device."
+                    }
+                }
                 transcripts.append("Agent: \(text)")
                 parts.append(ConversationPart(id: key, speaker: "Agent", text: text, playback: .unknown))
             }
@@ -271,7 +319,7 @@ final class CallCoordinator: ObservableObject {
         clearContinuation = nil
     }
 
-    private func stopCurrent() async {
+    private func stopCurrent(status: String = "incomplete") async {
         resolveClear(false)
         heartbeatTask?.cancel()
         heartbeatTask = nil
@@ -285,8 +333,26 @@ final class CallCoordinator: ObservableObject {
         committedItemID = nil
         if let id = sessionID {
             sessionID = nil
-            try? await backend.endSession(id)
+            do {
+                try await backend.endSession(id)
+                if let practiceID {
+                    let unfinished = store?.parts.contains { $0.practiceID == practiceID && $0.speaker == "You" && $0.text.isEmpty } ?? false
+                    if unfinished {
+                        try? store?.setStatus("incomplete", for: practiceID, issue: "A learner turn has no final transcript.")
+                    } else {
+                        try? store?.setStatus(status, for: practiceID)
+                    }
+                }
+            } catch {
+                if let practiceID { try? store?.setStatus("incomplete", for: practiceID, issue: "Could not confirm the session ended.") }
+            }
         }
+        practiceID = nil
+        practiceStartedAt = nil
+    }
+
+    private func offset() -> Int {
+        Int((Date().timeIntervalSince(practiceStartedAt ?? Date()) * 1000).rounded())
     }
 
     private func fail(_ text: String) {

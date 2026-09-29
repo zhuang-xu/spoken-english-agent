@@ -221,6 +221,46 @@ final class CallCoordinatorTests: XCTestCase {
         XCTAssertEqual(committed?.itemID, "item-42")
         XCTAssertNil(RealtimeEvent(data: Data("{}".utf8)))
     }
+
+    func testConversationEventsReachDurableJournal() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "call-store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try PracticeStore(directory: root)
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: FakeBackend(), permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FileRecorder(root: root), store: store)
+        await call.start(preferences: preferences)
+        XCTAssertEqual(store.practices.count, 1)
+        transport.emit(RealtimeEvent(type: "session.updated", turnDetectionDisabled: true))
+        await Task.yield()
+        let starting = Task { await call.startTurn() }
+        await Task.yield()
+        transport.emit(RealtimeEvent(type: "input_audio_buffer.cleared"))
+        await starting.value
+        await call.finishTurn()
+        transport.emit(RealtimeEvent(type: "input_audio_buffer.committed", itemID: "learner-1"))
+        transport.emit(RealtimeEvent(type: "conversation.item.input_audio_transcription.completed",
+                                     itemID: "learner-1", transcript: "My answer"))
+        transport.emit(RealtimeEvent(type: "response.output_audio_transcript.done", itemID: "agent-1",
+                                     transcript: "Good answer", contentIndex: 0, responseID: "response-1"))
+        await Task.yield()
+        XCTAssertEqual(Set(store.journal.map(\.kind)), Set(["audio", "learnerTranscript", "agentTranscript"]))
+        XCTAssertEqual(store.parts.filter { !$0.text.isEmpty }.count, 2)
+        await call.endAndGetFeedback()
+        XCTAssertEqual(store.practices.first?.status, "ended")
+    }
+}
+
+private final class FileRecorder: TurnRecording {
+    let root: URL
+    init(root: URL) { self.root = root }
+    func start(turnID: UUID) throws {}
+    func stop() throws -> URL {
+        let url = root.appending(path: "turn.wav")
+        try Data(repeating: 1, count: 100).write(to: url)
+        return url
+    }
+    func cancel() {}
 }
 
 private struct FakePermission: MicrophonePermissionProviding {

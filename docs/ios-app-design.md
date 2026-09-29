@@ -1,6 +1,6 @@
 # iOS speaking practice app design
 
-**Status:** Phase 2 foreground practice loop passed its simulator gate; durable history, uploads, feedback, and device verification remain.\
+**Status:** Phase 3 durable history and upload journal passed its simulator gate; final completeness, feedback, and device verification remain.\
 **Client:** SwiftUI on iPhone, with a native WebRTC transport.\
 **Backend:** The existing HTTP API in `backend/app/main.py`.
 

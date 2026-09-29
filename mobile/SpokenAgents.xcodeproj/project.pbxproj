@@ -9,13 +9,17 @@
 /* Begin PBXBuildFile section */
 		1F7D7A03AEBD14F3EBD5AEFF /* SessionAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */; };
 		25722E26D82C5B8320D97EC4 /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76437C8916C74BFB78866665 /* Audio.swift */; };
+		2F19AB68B167CD34CABDAA0A /* UploadJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E75C293BCA63F260A6F2849 /* UploadJournal.swift */; };
 		423E804974855AB24581E987 /* SessionAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */; };
 		51C679087A7C3CF7B71433B3 /* CallCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */; };
 		5799ABF3A3057A01898B33C9 /* SDPExchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */; };
 		6DEC30E9F5BF83B250180809 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9EA8B782594B81F824E8A942 /* WebRTC */; };
 		7BA12BFC3380603AA1C6468E /* RealtimeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */; };
 		85EC1CB23124625116EB0541 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */; };
+		9A4ABEE1109266BA630F4702 /* PracticeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8155AE18DDADC2C6278673C7 /* PracticeStore.swift */; };
+		A4611CA7F04596663670D365 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51415960243D2687FFD22B2 /* HistoryView.swift */; };
 		AE772BB994AD469C2455A89D /* LaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7A5F53395A190DEBB0B6E /* LaunchTests.swift */; };
+		B58994794A014C792B66132D /* PracticeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2DB78327D9F55FABF07510 /* PracticeStoreTests.swift */; };
 		D53AAB0B64643673FEF59070 /* AudioFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */; };
 		E58411ADA3F562D47ED4FD5B /* CallCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246201C57A363F91DF0A08A5 /* CallCoordinator.swift */; };
 		E70A08CE540CFF7334BCF972 /* SpokenAgentsApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */; };
@@ -44,15 +48,19 @@
 		246201C57A363F91DF0A08A5 /* CallCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCoordinator.swift; sourceTree = "<group>"; };
 		2A1824C2BFE9B271C8C37E64 /* SpokenAgents.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SpokenAgents.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3E75C293BCA63F260A6F2849 /* UploadJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadJournal.swift; sourceTree = "<group>"; };
 		3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAPI.swift; sourceTree = "<group>"; };
 		51913209EDF0C058943552C2 /* SpokenAgentsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SpokenAgentsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5C2DB78327D9F55FABF07510 /* PracticeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeStoreTests.swift; sourceTree = "<group>"; };
 		715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFixtureTests.swift; sourceTree = "<group>"; };
 		76437C8916C74BFB78866665 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		7EF4ACB34E9747363319DA51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8155AE18DDADC2C6278673C7 /* PracticeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeStore.swift; sourceTree = "<group>"; };
 		9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenAgentsApp.swift; sourceTree = "<group>"; };
 		A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallCoordinatorTests.swift; sourceTree = "<group>"; };
 		A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAPITests.swift; sourceTree = "<group>"; };
 		B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDPExchange.swift; sourceTree = "<group>"; };
+		C51415960243D2687FFD22B2 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeTransport.swift; sourceTree = "<group>"; };
 		DFC51B7B93008BBD3C9E1AB9 /* SpokenAgentsTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SpokenAgentsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F698F660569D702BBE088342 /* NativeRealtimeTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRealtimeTransport.swift; sourceTree = "<group>"; };
@@ -93,6 +101,7 @@
 			children = (
 				715A87D037A56B804F3B0E72 /* AudioFixtureTests.swift */,
 				A4FFDD04B7CB20E22284BA32 /* CallCoordinatorTests.swift */,
+				5C2DB78327D9F55FABF07510 /* PracticeStoreTests.swift */,
 				A5D77D809EC312C6CC83EC3A /* SessionAPITests.swift */,
 			);
 			path = SpokenAgentsTests;
@@ -104,12 +113,15 @@
 				76437C8916C74BFB78866665 /* Audio.swift */,
 				246201C57A363F91DF0A08A5 /* CallCoordinator.swift */,
 				2CE2AA8A1E9E3CC7EA78D4E6 /* ContentView.swift */,
+				C51415960243D2687FFD22B2 /* HistoryView.swift */,
 				7EF4ACB34E9747363319DA51 /* Info.plist */,
 				F698F660569D702BBE088342 /* NativeRealtimeTransport.swift */,
+				8155AE18DDADC2C6278673C7 /* PracticeStore.swift */,
 				C763C46A49A718B875BE92C8 /* RealtimeTransport.swift */,
 				B4C52DF7A4FF75E53673B232 /* SDPExchange.swift */,
 				3ECCC84CBA1EE96ABA01EA90 /* SessionAPI.swift */,
 				9476A5B610E5F2A237DD354E /* SpokenAgentsApp.swift */,
+				3E75C293BCA63F260A6F2849 /* UploadJournal.swift */,
 			);
 			path = SpokenAgents;
 			sourceTree = "<group>";
@@ -231,6 +243,7 @@
 			files = (
 				D53AAB0B64643673FEF59070 /* AudioFixtureTests.swift in Sources */,
 				51C679087A7C3CF7B71433B3 /* CallCoordinatorTests.swift in Sources */,
+				B58994794A014C792B66132D /* PracticeStoreTests.swift in Sources */,
 				423E804974855AB24581E987 /* SessionAPITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -250,11 +263,14 @@
 				25722E26D82C5B8320D97EC4 /* Audio.swift in Sources */,
 				E58411ADA3F562D47ED4FD5B /* CallCoordinator.swift in Sources */,
 				85EC1CB23124625116EB0541 /* ContentView.swift in Sources */,
+				A4611CA7F04596663670D365 /* HistoryView.swift in Sources */,
 				EE03215058EC683553EECADC /* NativeRealtimeTransport.swift in Sources */,
+				9A4ABEE1109266BA630F4702 /* PracticeStore.swift in Sources */,
 				7BA12BFC3380603AA1C6468E /* RealtimeTransport.swift in Sources */,
 				5799ABF3A3057A01898B33C9 /* SDPExchange.swift in Sources */,
 				1F7D7A03AEBD14F3EBD5AEFF /* SessionAPI.swift in Sources */,
 				E70A08CE540CFF7334BCF972 /* SpokenAgentsApp.swift in Sources */,
+				2F19AB68B167CD34CABDAA0A /* UploadJournal.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

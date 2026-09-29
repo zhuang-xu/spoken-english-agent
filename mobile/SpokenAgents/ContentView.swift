@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var call: CallCoordinator
+    var store: PracticeStore?
     @State private var goal = "Everyday conversation"
     @State private var level = "B1"
     @State private var topic = ""
@@ -51,6 +52,11 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Spoken Agents")
+            .toolbar {
+                if let store {
+                    NavigationLink("History") { HistoryView(store: store) }
+                }
+            }
             .onChange(of: scenePhase) { _, next in
                 if next == .background { Task { await call.stopForInterruption("Practice stopped in the background.") } }
             }
