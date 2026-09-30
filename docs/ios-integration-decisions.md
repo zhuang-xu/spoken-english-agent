@@ -1,6 +1,6 @@
 # iOS integration decisions and device matrix
 
-**Recorded:** 2026-09-27. **Implementation status:** Phase 3 simulator gate passed;
+**Recorded:** 2026-09-27. **Implementation status:** Phase 4 simulator gate passed;
 device behavior and hosted authentication remain pending later phases.
 
 ## Integration choices
