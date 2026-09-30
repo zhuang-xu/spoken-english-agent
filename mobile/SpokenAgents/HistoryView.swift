@@ -37,6 +37,8 @@ struct HistoryView: View {
         case "feedbackReady": "Feedback ready"
         case "incomplete": "Saving incomplete"
         case "ended": "Feedback pending"
+        case "evaluating": "Feedback processing"
+        case "evaluationFailed": "Feedback retry needed"
         default: "Practice interrupted"
         }
     }
@@ -51,6 +53,10 @@ struct PracticeDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var record: PracticeRecord? { store.practices.first { $0.id == practiceID } }
+    private var report: CoachingResponse? {
+        guard let data = record?.reportData else { return nil }
+        return try? JSONDecoder().decode(CoachingResponse.self, from: data)
+    }
     private var conversation: [SavedPart] {
         store.parts.filter { $0.practiceID == practiceID && !$0.text.isEmpty }
             .sorted { $0.offsetMilliseconds < $1.offsetMilliseconds }
@@ -76,28 +82,57 @@ struct PracticeDetailView: View {
                     }
                 }
                 Section("Coaching") {
-                    if let data = record.reportData,
-                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        if let summary = object["summary"] as? String { Text(summary) }
-                        else { Text("Saved coaching report available offline.") }
+                    if let report, let result = report.result {
+                        Text(result.summary)
+                        category("Grammar", result.grammar)
+                        category("Vocabulary", result.vocabulary)
+                        category("Coherence", result.coherence)
+                        speech("Pronunciation", value: report.speechSummary?.averagePronunciation,
+                               notAssessed: report.notAssessed.contains("pronunciation"))
+                        speech("Spoken fluency", value: report.speechSummary?.averageSpokenFluency,
+                               notAssessed: report.notAssessed.contains("spoken_fluency"))
+                        if let rhythm = report.speechSummary?.averageRhythmAndIntonation {
+                            Text("Rhythm and intonation: \(rhythm)/100")
+                        }
+                        VStack(alignment: .leading) {
+                            Text("Strengths").font(.headline)
+                            ForEach(result.strengths, id: \.self) { Text("• \($0)") }
+                        }
+                        VStack(alignment: .leading) {
+                            Text("Next steps").font(.headline)
+                            ForEach(Array(result.nextSteps.enumerated()), id: \.offset) { index, step in
+                                Text("\(index + 1). \(step)")
+                            }
+                        }
+                        if !result.corrections.isEmpty {
+                            Text("Grounded corrections").font(.headline)
+                            ForEach(result.corrections) { correction in
+                                VStack(alignment: .leading) {
+                                    Text("“\(correction.original)” → “\(correction.improved)”")
+                                    Text(correction.explanation).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Button("Refresh report online") {
+                            Task { note = await CoachingClient().refresh(practiceID: practiceID, store: store) }
+                        }
                     } else {
                         Text("Feedback is not available yet.")
                     }
                 }
-                if record.status == "incomplete" || record.status == "ended" {
+                if ["incomplete", "ended", "evaluating", "evaluationFailed"].contains(record.status) {
                     Section("Saved work") {
                         let pending = store.journal.filter { $0.practiceID == practiceID && $0.receipt != "accepted" }
                         Text("\(pending.count) upload items pending")
-                        Button(retrying ? "Retrying…" : "Retry pending uploads") {
+                        Button(retrying ? "Retrying…" : "Retry saving and feedback") {
                             retrying = true
                             Task {
                                 store.reconcile()
-                                let accepted = await UploadJournalClient().retry(practiceID: practiceID, store: store)
-                                note = "\(accepted) saved items accepted. Feedback processing is not available yet."
+                                note = await CoachingClient().finish(practiceID: practiceID, store: store)
                                 retrying = false
                             }
                         }
-                        .disabled(retrying || pending.isEmpty)
+                        .disabled(retrying)
                     }
                 }
                 Section {
@@ -114,5 +149,17 @@ struct PracticeDetailView: View {
                 catch { note = "Could not delete the local practice." }
             }
         }
+    }
+
+    private func category(_ name: String, _ category: CoachingCategory) -> some View {
+        VStack(alignment: .leading) {
+            Text("\(name): \(category.score.map { "\($0)/5" } ?? "Not assessed")").font(.headline)
+            Text(category.feedback)
+        }
+    }
+
+    private func speech(_ name: String, value: Int?, notAssessed: Bool) -> some View {
+        let assessment = value.map { "\($0)/100" } ?? "Not assessed"
+        return Text("\(name): \(notAssessed ? "Not assessed" : assessment)")
     }
 }

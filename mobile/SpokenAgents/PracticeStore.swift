@@ -17,6 +17,7 @@ import SwiftData
     var status: String
     var issue: String?
     var reportData: Data?
+    var manifestData: Data?
 
     init(id: UUID, owner: String, sessionID: UUID, key: UUID, preferences: SessionPreferences) {
         self.id = id; self.owner = owner; self.sessionID = sessionID; self.idempotencyKey = key
@@ -184,9 +185,28 @@ import SwiftData
 
     func saveReport(_ data: Data, practiceID: UUID) throws {
         guard let record = practices.first(where: { $0.id == practiceID }) else { return }
-        _ = try JSONSerialization.jsonObject(with: data)
+        let report = try JSONDecoder().decode(CoachingResponse.self, from: data)
+        guard report.validCompleted else { throw StoreFailure.corruptPayload }
         record.reportData = data; record.status = "feedbackReady"; record.issue = nil; record.updatedAt = Date()
         try save()
+    }
+
+    func manifest(for practiceID: UUID) throws -> Data {
+        guard let record = practices.first(where: { $0.id == practiceID }) else { throw StoreFailure.missingPayload }
+        if let saved = record.manifestData { return saved }
+        let entries = journal.filter { $0.practiceID == practiceID }
+        let turnIDs = Set(parts.filter { $0.practiceID == practiceID && $0.speaker == "You" }.map(\.id))
+        let audio = Set(entries.filter { $0.kind == "audio" }.compactMap { $0.id.split(separator: "/").last.map(String.init) }).union(turnIDs)
+        let transcripts = Set(entries.filter { $0.kind == "learnerTranscript" }.compactMap { $0.id.split(separator: "/").last.map(String.init) }).union(turnIDs)
+        let agent = entries.filter { $0.kind == "agentTranscript" }.compactMap { item -> ManifestAgent? in
+            let fields = item.id.split(separator: "/")
+            guard fields.count == 3, let index = Int(fields[2]) else { return nil }
+            return ManifestAgent(itemID: String(fields[1]), contentIndex: index)
+        }.sorted { $0.itemID == $1.itemID ? $0.contentIndex < $1.contentIndex : $0.itemID < $1.itemID }
+        let bytes = try JSONEncoder().encode(UploadManifest(audioTurnIDs: audio.sorted(), transcriptTurnIDs: transcripts.sorted(), agentTranscripts: agent))
+        record.manifestData = bytes
+        try save()
+        return bytes
     }
 
     func delete(_ id: UUID) throws {
@@ -230,7 +250,8 @@ import SwiftData
             record.status = "incomplete"; record.issue = "Practice was interrupted before it finished."
         }
         for record in practices {
-            if let report = record.reportData, (try? JSONSerialization.jsonObject(with: report)) == nil {
+            if let report = record.reportData,
+               (try? JSONDecoder().decode(CoachingResponse.self, from: report).validCompleted) != true {
                 record.reportData = nil
                 record.status = "incomplete"
                 record.issue = "Cached coaching data is damaged. Local conversation remains available."

@@ -10,7 +10,8 @@ struct SpokenAgentsApp: App {
         self.store = store
         _call = StateObject(wrappedValue: CallCoordinator(
             backend: HTTPBackendClient(), permission: SystemMicrophonePermission(),
-            transport: NativeRealtimeTransport(), recorder: WAVTurnRecorder(), store: store
+            transport: NativeRealtimeTransport(), recorder: WAVTurnRecorder(), store: store,
+            coaching: CoachingClient()
         ))
     }
 

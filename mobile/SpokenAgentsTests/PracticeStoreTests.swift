@@ -5,6 +5,12 @@ import XCTest
 @MainActor final class PracticeStoreTests: XCTestCase {
     private let preferences = SessionPreferences(speakingGoal: "Travel speaking", level: "B1",
                                                   preferredTopic: "Airport", sessionDurationMinutes: 10)
+    private let report = Data("""
+    {"status":"completed","result":{"summary":"Well done","grammar":{"score":4,"feedback":"Clear"},
+    "vocabulary":{"score":4,"feedback":"Varied"},"coherence":{"score":4,"feedback":"Connected"},
+    "strengths":["Clear answers"],"next_steps":["Practice longer turns"],"corrections":[]},
+    "not_assessed":["pronunciation","spoken_fluency"]}
+    """.utf8)
 
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "store-test-\(UUID().uuidString)")
@@ -19,7 +25,7 @@ import XCTest
         let first = UUID(), second = UUID()
         try store?.create(id: first, sessionID: UUID(), key: UUID(), preferences: preferences)
         try store?.savePart(id: "agent-1/0", practiceID: first, speaker: "Agent", text: "Hello", offsetMilliseconds: 10)
-        try store?.saveReport(Data("{\"summary\":\"Well done\"}".utf8), practiceID: first)
+        try store?.saveReport(report, practiceID: first)
         try store?.create(id: second, sessionID: UUID(), key: UUID(), preferences: preferences)
         XCTAssertEqual(store?.practices.map(\.id), [second, first])
         store = nil
@@ -99,7 +105,7 @@ import XCTest
         let practice = UUID()
         try store.create(id: practice, sessionID: UUID(), key: UUID(), preferences: preferences)
         try store.savePart(id: "agent-1/0", practiceID: practice, speaker: "Agent", text: "Hello", offsetMilliseconds: 1)
-        try store.saveReport(Data("{\"summary\":\"ok\"}".utf8), practiceID: practice)
+        try store.saveReport(report, practiceID: practice)
         store.practices[0].reportData = Data("broken".utf8)
         store.reconcile()
         XCTAssertEqual(store.practices[0].status, "incomplete")

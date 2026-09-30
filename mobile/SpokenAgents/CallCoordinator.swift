@@ -43,6 +43,7 @@ final class CallCoordinator: ObservableObject {
     private let transport: RealtimeTransporting
     private let recorder: TurnRecording
     private let store: PracticeStore?
+    private let coaching: CoachingClient?
     private let clearTimeoutNanoseconds: UInt64
     private let heartbeatNanoseconds: UInt64
     private var attempt = UUID()
@@ -61,6 +62,7 @@ final class CallCoordinator: ObservableObject {
     init(backend: BackendServing, permission: MicrophonePermissionProviding,
          transport: RealtimeTransporting, recorder: TurnRecording,
          store: PracticeStore? = nil,
+         coaching: CoachingClient? = nil,
          clearTimeoutNanoseconds: UInt64 = 5_000_000_000,
          heartbeatNanoseconds: UInt64 = 30_000_000_000) {
         self.backend = backend
@@ -68,6 +70,7 @@ final class CallCoordinator: ObservableObject {
         self.transport = transport
         self.recorder = recorder
         self.store = store
+        self.coaching = coaching
         self.clearTimeoutNanoseconds = clearTimeoutNanoseconds
         self.heartbeatNanoseconds = heartbeatNanoseconds
     }
@@ -208,10 +211,15 @@ final class CallCoordinator: ObservableObject {
         phase = .finishing
         attempt = UUID()
         await stopCurrent(status: "ended")
+        if let store, let coaching, store.practices.first(where: { $0.id == current })?.status == "ended" {
+            phase = .evaluating
+            message = await coaching.finish(practiceID: current, store: store)
+        } else {
+            message = store?.practices.first(where: { $0.id == current })?.status == "incomplete"
+                ? "Practice saved with missing data. Open History to review and retry."
+                : "Practice saved on this device. Feedback is pending."
+        }
         phase = .completed
-        message = store?.practices.first(where: { $0.id == current })?.status == "incomplete"
-            ? "Practice saved with missing data. Open History to review and retry."
-            : "Practice saved on this device. Feedback is pending."
     }
 
     func stopForInterruption(_ reason: String) async {
