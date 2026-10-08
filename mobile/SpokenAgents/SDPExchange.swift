@@ -17,10 +17,11 @@ struct HTTPSDPExchanger {
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
         request.setValue("application/sdp", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(offer.utf8)
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse,
-              response.statusCode == 200 || response.statusCode == 201,
-              let answer = String(data: data, encoding: .utf8), answer.hasPrefix("v=0") else {
+        let (data, response) = try await DiagnosticHTTP.send(request, using: session)
+        guard response.statusCode == 200 || response.statusCode == 201 else {
+            throw RealtimeFailure.providerStatus(response.statusCode)
+        }
+        guard let answer = String(data: data, encoding: .utf8), answer.hasPrefix("v=0") else {
             throw RealtimeFailure.invalidAnswer
         }
         return answer

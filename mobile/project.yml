@@ -16,16 +16,29 @@ targets:
       path: SpokenAgents/Info.plist
       properties:
         APIBaseURL: $(API_BASE_URL)
-        NSMicrophoneUsageDescription: Spoken Agents uses the microphone for speaking practice.
+        EntraClientID: $(ENTRA_CLIENT_ID)
+        EntraTenantID: $(ENTRA_TENANT_ID)
+        EntraAPIScope: $(ENTRA_API_SCOPE)
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - msauth.$(PRODUCT_BUNDLE_IDENTIFIER)
+        LSApplicationQueriesSchemes:
+          - msauthv2
+          - msauthv3
+        NSMicrophoneUsageDescription: Record your speaking turns during a live practice and upload them for pronunciation and fluency feedback.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.spokenagents.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhuangxu.spokenagents.app
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ''
-        API_BASE_URL: http://127.0.0.1:8000
+        CODE_SIGN_ENTITLEMENTS: SpokenAgents/SpokenAgents.entitlements
+        DEVELOPMENT_TEAM: F72GFU3YCH
+        API_BASE_URL: https://spoken-agent-func-4fa2534c.azurewebsites.net
+        ENTRA_CLIENT_ID: de83c9a6-ce5f-4acc-9d6a-aa91f6e93547
+        ENTRA_TENANT_ID: 92d6ad81-2630-4f30-9758-b3891cfc2528
+        ENTRA_API_SCOPE: api://75694815-28ae-46c6-b566-d7c895d31899/access_as_user
   SpokenAgentsTests:
     type: bundle.unit-test
     platform: iOS
@@ -34,6 +47,7 @@ targets:
       - target: SpokenAgents
     settings:
       base:
+        DEVELOPMENT_TEAM: F72GFU3YCH
         GENERATE_INFOPLIST_FILE: YES
   SpokenAgentsUITests:
     type: bundle.ui-testing
@@ -43,6 +57,7 @@ targets:
       - target: SpokenAgents
     settings:
       base:
+        DEVELOPMENT_TEAM: F72GFU3YCH
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   SpokenAgents:

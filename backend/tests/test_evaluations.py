@@ -73,13 +73,13 @@ def test_invalid_result(ready_evaluation, mock_openai_post, evaluation_payload, 
         evaluation_payload['pronunciation'] = 5
     else:
         snapshot = json.loads(evaluation_record(ready_evaluation[1].database_path,
-            url.split('/')[2], 'test-evaluation')[2])
+            url.split('/')[2], '00000000-0000-4000-8000-000000000001', 'test-evaluation')[2])
         turn = snapshot['learner_transcripts'][0]['turn_id']
         evaluation_payload['corrections'] = [{'turn_id': turn if change == 'bad_quote' else 'unknown',
             'original': 'invented' if change == 'bad_quote' else 'I built an application.',
             'improved': 'A better sentence.', 'explanation': 'Why.'}]
         # Mark the reservation failed so the route can retry it.
-        record = evaluation_record(ready_evaluation[1].database_path, url.split('/')[2])[1]
+        record = evaluation_record(ready_evaluation[1].database_path, url.split('/')[2], '00000000-0000-4000-8000-000000000001')[1]
         finish_evaluation(ready_evaluation[1].database_path, record, error_code='provider_failure')
     mock_openai_post.return_value = httpx.Response(200, request=httpx.Request('POST', 'https://test.example'),
         json={'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(evaluation_payload)}}]})
@@ -130,7 +130,7 @@ def test_concurrent_reservation_and_stale_fencing(ready_evaluation):
     api, settings, url = ready_evaluation
     sid = url.split('/')[2]
     def reserve(_):
-        return evaluation_record(settings.database_path, sid, 'test-evaluation')
+        return evaluation_record(settings.database_path, sid, '00000000-0000-4000-8000-000000000001', 'test-evaluation')
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(reserve, range(2)))
     assert sorted(x[0] for x in outcomes) == ['reserved', 'running']
@@ -151,7 +151,7 @@ def test_concurrent_reservation_and_stale_fencing(ready_evaluation):
 def test_late_upload_preserves_snapshot(ready_evaluation, mock_openai_post, evaluation_response):
     api, settings, url = ready_evaluation
     sid = url.split('/')[2]
-    _, record, snapshot = evaluation_record(settings.database_path, sid, 'original-deployment')
+    _, record, snapshot = evaluation_record(settings.database_path, sid, '00000000-0000-4000-8000-000000000001', 'original-deployment')
     finish_evaluation(settings.database_path, record, error_code='provider_failure')
     api.put(f'/sessions/{sid}/learner-turns/{uuid4()}/transcript', json={
         'text': 'Late undeclared text', 'start_ms': 5000, 'end_ms': 6000}).raise_for_status()

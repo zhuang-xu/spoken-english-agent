@@ -34,16 +34,21 @@ Disconnect closes local media/transport and ends the backend session row.
 
 ## Authentication and configuration
 
-No new environment settings. Resource key stays server-side; no credentials go into
-DOM, URLs, logs, or browser storage. Local Uvicorn requires no authentication.
-The Azure Functions adapter defaults to FUNCTION authorization for all routes.
-The September 13 hosted deployment uses Microsoft sign-in at the Azure platform
-layer and `FUNCTIONS_HTTP_AUTH_LEVEL=anonymous` behind it. Platform authentication
-must be enabled and verified before selecting this mode. Browser requests use the
-sign-in session cookie, without a Function key. Access is initially restricted to
-the owner's Azure account; application-level session ownership remains deferred.
-Use localhost or HTTPS for microphone access. Keep the existing deployment setting;
-this feature makes no model/resource changes.
+The browser calls `GET /me` before enabling practice or restoring a saved report.
+Same-origin requests use the Azure platform sign-in cookie and include
+`X-Expected-Account-ID` as a conditional guard; the server authenticates the
+cookie and rejects a changed account. A 401 or platform login redirect displays
+sign-in controls. The page accepts resumed in-memory uploads only after `/me`
+confirms the same account; a different account clears the page and cancels pending
+uploads. Completed report references are stored under a key scoped to the verified
+account. The legacy unscoped key is removed without displaying its goal.
+
+The [account isolation API contract](account-isolation-api-contract.md) defines
+server ownership and deployment settings. Local Uvicorn requires a valid Entra
+bearer token for protected API routes; the hosted browser relies on platform
+sign-in and does not store credentials. Keep the Azure platform boundary enabled
+when the Function trigger is anonymous. Use localhost or HTTPS for microphone
+access.
 
 Protocol reference checked 2026-09-08:
 [Microsoft WebRTC guide](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/realtime-audio-webrtc).
@@ -76,7 +81,7 @@ Automated tests mock external HTTP and browser media. They establish connection
 logic, not actual WebRTC negotiation, codec compatibility, or audible playback.
 
 Deferred: cloud deployment/GitHub publication, real conversation verification,
-automatic reconnection/token refresh, session duration enforcement, and per-user authentication.
+automatic reconnection/token refresh, session duration enforcement, and hosted two-account verification.
 
 
 ## Browser backend integration — 2026-09-11
@@ -177,7 +182,7 @@ identical retry bytes and exactly one automatic evaluation request.
 
 Shared hosted state and diagnostics follow the [hosted storage contract](hosted-storage-api-contract.md).
 
-The page has no manual save-retry control. **Get feedback** remains enabled if
+The page offers **Retry saving** for incomplete in-memory work. **Get feedback** remains enabled if
 evaluation fails and its error explains that the session is already saved. Ending a
 conversation saves with the automatic retry policy above and then requests feedback.
 If Azure Speech is temporarily unavailable, the page still renders transcript
@@ -198,3 +203,19 @@ Verification: 209 backend tests and 44 browser tests passed locally. The Azure
 release was accepted under deployment ID `9abaf848-27dc-4632-b0a2-3bf6f3c2c77b`;
 the authenticated hosted page displayed the new controls. No end-to-end microphone
 conversation was run in this release check.
+
+## Completed feedback recovery — 2026-09-25
+
+After a completed evaluation, the practice page saves only the session ID and
+speaking goal under the verified account's key in this browser's local storage. On reload it fetches the completed
+report through the existing authenticated `GET /sessions/{session_id}/evaluation`
+route and displays it. A temporary fetch failure offers **View saved feedback** to
+retry. A 404 removes the stale local reference. **Forget this report on this device**
+removes the local reference; it does not delete server data. A newly completed
+report replaces the previous local reference. Credentials, transcripts, audio and
+evaluation results are not copied into local storage.
+
+This recovers the last completed report on the same browser only. It does not resume
+an active WebRTC call or recover uploads that were still in memory when the page
+closed. Browser tests cover completed report restore, local removal, replacement,
+missing server data and transient retry.

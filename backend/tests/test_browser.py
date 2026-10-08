@@ -16,6 +16,7 @@ def browser_client(client):
     ("/practice-assets/practice.mjs", "javascript"),
     ("/practice-assets/realtime.mjs", "javascript"),
     ("/practice-assets/session.mjs", "javascript"),
+    ("/practice-assets/account.mjs", "javascript"),
     ("/practice-assets/recorder.mjs", "javascript"),
     ("/practice-assets/practice.css", "text/css"),
 ])

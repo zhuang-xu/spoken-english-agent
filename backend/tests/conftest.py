@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.main import app
+from app.auth import current_account
+
+TEST_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
 from app.services import realtime
 
 
@@ -54,6 +57,7 @@ def mock_openai_post(monkeypatch, realtime_response):
 def client(settings, mock_openai_post, monkeypatch):
     """API client with isolated settings and mocked provider HTTP."""
     monkeypatch.setitem(app.dependency_overrides, get_settings, lambda: settings)
+    monkeypatch.setitem(app.dependency_overrides, current_account, lambda: TEST_ACCOUNT_ID)
     with TestClient(app) as test_client:
         yield test_client, settings
 

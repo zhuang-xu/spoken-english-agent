@@ -13,11 +13,11 @@ AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/wav", "audio/mp4", "audio/mpeg"
 
 
 def capture_input(settings: Settings, session_id: str, turn_id: str, component: str,
-                  payload: bytes | str, media_type: str | None = None
+                  payload: bytes | str, account_id: str, media_type: str | None = None
                   ) -> tuple[LearnerInputReceipt, int]:
     try:
         outcome, audio_received, transcript_received = store_learner_input(
-            settings.database_path, session_id, turn_id, component, payload, media_type
+            settings.database_path, session_id, turn_id, component, payload, account_id, media_type
         )
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Learner input storage is unavailable.") from None
@@ -36,9 +36,9 @@ def capture_input(settings: Settings, session_id: str, turn_id: str, component: 
 
 
 def capture_audio(settings: Settings, session_id: str, turn_id: str, payload: bytes,
-                  media_type: str) -> tuple[LearnerInputReceipt, int]:
+                  media_type: str, account_id: str) -> tuple[LearnerInputReceipt, int]:
     """Persist first, then synchronously evaluate pronunciation and fluency."""
     receipt, status = capture_input(
-        settings, session_id, turn_id, "audio", payload, media_type)
+        settings, session_id, turn_id, "audio", payload, account_id, media_type)
     assess_uploaded_audio(payload, media_type, session_id, turn_id, settings)
     return receipt, status

@@ -58,6 +58,39 @@ final class CallCoordinatorTests: XCTestCase {
         XCTAssertEqual(transport.closeCount, 1)
     }
 
+    func testWebRTCConfigurationRouteChangeDoesNotCancelPendingConnection() async {
+        let backend = FakeBackend()
+        let transport = FakeTransport()
+        var finishConnect: CheckedContinuation<Void, Never>?
+        transport.onConnect = { await withCheckedContinuation { finishConnect = $0 } }
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder())
+        let starting = Task { await call.start(preferences: preferences) }
+        while finishConnect == nil { await Task.yield() }
+        await call.audioRouteChanged(8) // routeConfigurationChange observed on the iPhone.
+        XCTAssertEqual(call.phase, .connecting)
+        XCTAssertEqual(transport.closeCount, 0)
+        XCTAssertEqual(backend.endCount, 0)
+        finishConnect?.resume()
+        await starting.value
+        transport.emit(RealtimeEvent(type: "session.updated", turnDetectionDisabled: true))
+        await Task.yield()
+        XCTAssertEqual(call.phase, .ready)
+        await call.disconnect()
+    }
+
+    func testLostAudioRouteStillStopsPractice() async {
+        let backend = FakeBackend()
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: backend, permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder())
+        await call.start(preferences: preferences)
+        await call.audioRouteChanged(2) // oldDeviceUnavailable
+        XCTAssertEqual(call.phase, .failed)
+        XCTAssertEqual(transport.closeCount, 1)
+        XCTAssertEqual(backend.endCount, 1)
+    }
+
     func testDisconnectDuringConnectionDoesNotCloseTwiceOrRevive() async {
         let backend = FakeBackend()
         let transport = FakeTransport()
@@ -87,6 +120,24 @@ final class CallCoordinatorTests: XCTestCase {
         let count = backend.heartbeatCount
         try await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(backend.heartbeatCount, count)
+    }
+
+    func testRecordingAutomaticallyFinishesAtTimeLimit() async throws {
+        let transport = FakeTransport()
+        let call = CallCoordinator(backend: FakeBackend(), permission: FakePermission(allowed: true),
+                                   transport: transport, recorder: FakeRecorder(),
+                                   maxTurnNanoseconds: 5_000_000)
+        await call.start(preferences: preferences)
+        transport.emit(RealtimeEvent(type: "session.updated", turnDetectionDisabled: true))
+        await Task.yield()
+        let starting = Task { await call.startTurn() }
+        await Task.yield()
+        transport.emit(RealtimeEvent(type: "input_audio_buffer.cleared"))
+        await starting.value
+        XCTAssertEqual(call.phase, .recording)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(call.phase, .waitingForTranscript)
+        XCTAssertTrue(call.message?.contains("five minutes") == true)
     }
 
     func testConnectManualTurnAndCorrelateTranscript() async {
@@ -141,6 +192,7 @@ final class CallCoordinatorTests: XCTestCase {
                                    transport: transport, recorder: FakeRecorder())
         await call.start(preferences: preferences)
         XCTAssertEqual(call.phase, .failed)
+        XCTAssertEqual(call.message, "Realtime connection timed out. Check your network and try again.")
         XCTAssertEqual(backend.endCount, 1)
         XCTAssertEqual(transport.closeCount, 1)
     }

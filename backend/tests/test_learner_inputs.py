@@ -137,7 +137,8 @@ def test_concurrent_components_and_duplicate_uploads(learner_turn):
     def save(component):
         payload = b"audio" if component == "audio" else LearnerTranscript(**transcript).model_dump_json()
         return store_learner_input(settings.database_path, session_id, turn_id,
-                                   component, payload, "audio/webm" if component == "audio" else None)
+                                   component, payload, "00000000-0000-4000-8000-000000000001",
+                                   "audio/webm" if component == "audio" else None)
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(save, ["audio", "transcript", "audio", "transcript"]))
     assert sorted(result[0] for result in results) == ["created", "created", "exists", "exists"]

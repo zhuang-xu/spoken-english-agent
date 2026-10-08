@@ -299,3 +299,13 @@ test("blocked autoplay requests an explicit audio control without changing conne
     assert.ok(h.call.attempt);
   } finally { h.call.stop(); }
 });
+
+test('account switch closes media without finalizing under the new account', async () => {
+  let stops = 0;
+  const h = harness({ onStop: () => { stops++; } });
+  await h.call.start(preferences);
+  h.call.stop('Account changed', 'error', { suppressSessionEnd: true });
+  assert.equal(stops, 0);
+  assert.equal(h.track.stopped, true);
+  assert.equal(h.call.attempt, null);
+});

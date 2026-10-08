@@ -10,9 +10,9 @@ from app.storage.evaluations import (evaluation_record, finish_evaluation,
                                      save_transcript_evaluation, wait_for_speech)
 
 
-def get_evaluation(settings, session_id):
+def get_evaluation(settings, session_id, account_id):
     try:
-        outcome, record, _ = evaluation_record(settings.database_path, session_id)
+        outcome, record, _ = evaluation_record(settings.database_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Evaluation storage is unavailable.') from None
     if outcome == 'not_found':
@@ -20,10 +20,10 @@ def get_evaluation(settings, session_id):
     return record
 
 
-def run_evaluation(settings, session_id):
+def run_evaluation(settings, session_id, account_id):
     # Completed results remain available without provider configuration.
     try:
-        existing = get_evaluation(settings, session_id)
+        existing = get_evaluation(settings, session_id, account_id)
     except HTTPException as error:
         if error.status_code != 404:
             raise
@@ -42,7 +42,7 @@ def run_evaluation(settings, session_id):
         raise HTTPException(503, 'Azure evaluation is not configured correctly.')
     try:
         outcome, record, snapshot = evaluation_record(
-            settings.database_path, session_id, settings.azure_openai_evaluation_deployment)
+            settings.database_path, session_id, account_id, settings.azure_openai_evaluation_deployment)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Evaluation storage is unavailable.') from None
     errors = {'not_found': (404, 'Session not found.'),

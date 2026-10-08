@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var call: CallCoordinator
+    @ObservedObject var account: AccountSession
     var store: PracticeStore?
     @State private var goal = "Everyday conversation"
     @State private var level = "B1"
@@ -18,6 +19,35 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Account") {
+                    switch account.state {
+                    case .ready: Text("Signed in")
+                    case .offline: Text("Offline. Saved history is available.")
+                    case .checking: ProgressView("Checking sign-in")
+                    case .denied: Text("This account cannot access the Spoken Agents API.")
+                    case .configurationError: Text("Sign-in is unavailable. Please update the app.")
+                    case .needsSignIn: Text(account.signInFailure ?? "Sign-in did not complete. Try again.")
+                    case .signedOut: Text("Sign in to practice and view your history.")
+                    }
+                    if account.state == .offline {
+                        Button("Retry connection") { Task { await account.restore() } }
+                    }
+                    if account.state != .ready && account.state != .checking && account.state != .configurationError {
+                        Button("Sign in with Microsoft") {
+                            call.accountDidChange()
+                            account.signOut()
+                            Task { await account.signIn() }
+                        }
+                        .accessibilityIdentifier("signInButton")
+                    }
+                    if account.canReadHistory {
+                        Button("Sign out", role: .destructive) {
+                            call.accountDidChange()
+                            account.signOut()
+                        }
+                    }
+                }
+                if account.canConnect {
                 Section("Practice setup") {
                     TextField("Speaking goal", text: $goal)
                     Picker("CEFR level", selection: $level) {
@@ -32,11 +62,14 @@ struct ContentView: View {
 
                 Section("Conversation") {
                     Text(call.phase.title)
+                        .accessibilityLabel("Practice status: \(call.phase.title)")
                         .accessibilityIdentifier("callStatus")
                     if let message = call.message { Text(message).foregroundStyle(.secondary) }
                     Button("Start speaking") { Task { await call.startTurn() } }
+                        .accessibilityHint("Starts a recorded learner turn. Finish the turn when you are done speaking.")
                         .disabled(call.phase != .ready)
                     Button("Finish turn") { Task { await call.finishTurn() } }
+                        .accessibilityHint("Sends this turn to the conversation and saves your recording for feedback.")
                         .disabled(call.phase != .recording)
                     Button(call.speakerEnabled ? "Use current audio route" : "Use speaker") { call.toggleSpeaker() }
                         .disabled(![.ready, .recording, .waitingForTranscript].contains(call.phase))
@@ -50,25 +83,29 @@ struct ContentView: View {
                         Text("\(part.speaker): \(part.text)")
                     }
                 }
+                }
             }
             .navigationTitle("Spoken Agents")
             .toolbar {
-                if let store {
-                    NavigationLink("History") { HistoryView(store: store) }
+                NavigationLink("Diagnostics") { DiagnosticsView() }
+                if let store, account.canReadHistory {
+                    NavigationLink("History") { HistoryView(store: store, account: account) }
                 }
             }
             .onChange(of: scenePhase) { _, next in
+                DiagnosticLog.shared.record("app.scene", fields: ["phase": String(describing: next)])
                 if next == .background { Task { await call.stopForInterruption("Practice stopped in the background.") } }
             }
+            .onChange(of: account.state) { _, next in
+                if next != .ready { call.accountDidChange() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in
+                DiagnosticLog.shared.record("audio.interruption")
                 Task { await call.stopForInterruption("Practice stopped by an audio interruption.") }
             }
             .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
                 let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-                if raw != AVAudioSession.RouteChangeReason.override.rawValue &&
-                   raw != AVAudioSession.RouteChangeReason.categoryChange.rawValue {
-                    Task { await call.stopForInterruption("Audio route changed. Start a new practice.") }
-                }
+                Task { await call.audioRouteChanged(raw) }
             }
         }
     }

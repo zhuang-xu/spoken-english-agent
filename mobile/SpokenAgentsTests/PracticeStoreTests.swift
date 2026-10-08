@@ -83,6 +83,26 @@ import XCTest
         XCTAssertTrue(reopened.journal.isEmpty)
     }
 
+    func testCompletedReportRemovesAcceptedAudioButKeepsPendingRetries() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try PracticeStore(directory: root)
+        let practice = UUID(), accepted = UUID(), pending = UUID()
+        try store.create(id: practice, sessionID: UUID(), key: UUID(), preferences: preferences)
+        for turn in [accepted, pending] {
+            let source = root.appending(path: "\(turn.uuidString).wav")
+            try Data(repeating: 7, count: 100).write(to: source)
+            try store.queueAudio(turnID: turn, practiceID: practice, source: source)
+        }
+        try store.markAccepted("audio/\(accepted.uuidString)", practiceID: practice)
+        let pendingItem = try XCTUnwrap(store.journal.first { $0.id == "audio/\(pending.uuidString)" })
+        try store.saveReport(report, practiceID: practice)
+        let acceptedItem = try XCTUnwrap(store.journal.first { $0.id == "audio/\(accepted.uuidString)" })
+        XCTAssertNil(acceptedItem.fileName)
+        XCTAssertEqual(try store.bytes(for: pendingItem).count, 100)
+        XCTAssertEqual(store.practices.first?.status, "feedbackReady")
+    }
+
     func testOrphanedAudioMoveIsRecoveredOnLaunch() throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

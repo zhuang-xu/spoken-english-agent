@@ -55,5 +55,6 @@ with TestClient(app) as client:
     assert client.get('/openapi.json').status_code == 200
     assert client.get('/practice').status_code == {200 if include_browser else 404}
     assert client.get('/practice-assets/realtime.mjs').status_code == {200 if include_browser else 404}
+    assert client.get('/practice-assets/account.mjs').status_code == {200 if include_browser else 404}
 assert len(function_app.app.get_functions()) == 2
 '''], cwd=extracted, env=env, capture_output=True, check=True)

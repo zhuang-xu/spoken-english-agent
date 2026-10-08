@@ -14,15 +14,15 @@ MAX_SNAPSHOT_BYTES = 200_000
 RUBRIC_VERSION = 'staged-coaching-v4'
 
 
-def evaluation_record(database_path, session_id, deployment=None):
+def evaluation_record(database_path, session_id, account_id, deployment=None):
     """Read a record, or reserve an attempt when deployment is supplied."""
     with database_connection(database_path) as db:
         db.execute('BEGIN IMMEDIATE')
         if not migrate_session_lifecycle(db):
             return 'not_found', None, None
         session = db.execute(
-            'SELECT status, upload_manifest, preferences FROM practice_sessions WHERE id=?',
-            (session_id,),
+            'SELECT status, upload_manifest, preferences FROM practice_sessions WHERE id=? AND owner_account_id=?',
+            (session_id, account_id),
         ).fetchone()
         if session is None:
             return 'not_found', None, None

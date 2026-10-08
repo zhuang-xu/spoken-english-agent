@@ -13,7 +13,7 @@ def test_documented_routes(client):
     response = api.get("/openapi.json")
     assert response.status_code == 200
     schema = response.json()
-    assert set(schema["paths"]) == {"/health", "/sessions",
+    assert set(schema["paths"]) == {"/health", "/me", "/sessions",
         "/sessions/{session_id}/end",
         "/sessions/{session_id}/evaluation",
         "/sessions/{session_id}/heartbeat",

@@ -32,7 +32,9 @@ struct ConversationPart: Equatable, Identifiable {
 
 @MainActor
 final class CallCoordinator: ObservableObject {
-    @Published private(set) var phase: CallPhase = .idle
+    @Published private(set) var phase: CallPhase = .idle {
+        didSet { DiagnosticLog.shared.record("call.phase", fields: ["phase": String(describing: phase), "attempt": attempt.uuidString]) }
+    }
     @Published private(set) var message: String?
     @Published private(set) var transcripts: [String] = []
     @Published private(set) var parts: [ConversationPart] = []
@@ -46,6 +48,7 @@ final class CallCoordinator: ObservableObject {
     private let coaching: CoachingClient?
     private let clearTimeoutNanoseconds: UInt64
     private let heartbeatNanoseconds: UInt64
+    private let maxTurnNanoseconds: UInt64
     private var attempt = UUID()
     private var sessionID: UUID?
     private var practiceID: UUID?
@@ -55,6 +58,7 @@ final class CallCoordinator: ObservableObject {
     private var committedItemID: String?
     private var lastRecordingURL: URL?
     private var heartbeatTask: Task<Void, Never>?
+    private var recordingLimitTask: Task<Void, Never>?
     private var transportNeedsClose = false
     private var agentParts = Set<String>()
     private var seenLearnerItems = Set<String>()
@@ -64,7 +68,8 @@ final class CallCoordinator: ObservableObject {
          store: PracticeStore? = nil,
          coaching: CoachingClient? = nil,
          clearTimeoutNanoseconds: UInt64 = 5_000_000_000,
-         heartbeatNanoseconds: UInt64 = 30_000_000_000) {
+         heartbeatNanoseconds: UInt64 = 30_000_000_000,
+         maxTurnNanoseconds: UInt64 = 300_000_000_000) {
         self.backend = backend
         self.permission = permission
         self.transport = transport
@@ -73,6 +78,7 @@ final class CallCoordinator: ObservableObject {
         self.coaching = coaching
         self.clearTimeoutNanoseconds = clearTimeoutNanoseconds
         self.heartbeatNanoseconds = heartbeatNanoseconds
+        self.maxTurnNanoseconds = maxTurnNanoseconds
     }
 
     func start(preferences: SessionPreferences) async {
@@ -81,6 +87,7 @@ final class CallCoordinator: ObservableObject {
         if let error = preferences.validationMessage { message = error; return }
         let current = UUID()
         attempt = current
+        DiagnosticLog.shared.record("call.start", fields: ["attempt": current.uuidString])
         phase = .requestingPermission
         message = nil
         transcripts = []
@@ -88,23 +95,27 @@ final class CallCoordinator: ObservableObject {
         agentParts = []
         seenLearnerItems = []
         let allowed = await permission.request()
+        DiagnosticLog.shared.record("audio.permission", fields: ["allowed": String(allowed)])
         guard attempt == current else { return }
         guard allowed else { fail("Allow microphone access in Settings to practice speaking."); return }
         phase = .connecting
 
+        var stage = "Session creation"
         do {
             let result = try await backend.createSession(preferences, key: current)
             guard attempt == current else {
-                try? await backend.endSession(result.session.id)
                 return
             }
+            DiagnosticLog.shared.record("call.session_created", fields: ["attempt": current.uuidString, "realtime_present": String(result.realtime != nil)])
             sessionID = result.session.id
+            stage = "Saving practice"
             if let store {
                 try store.create(id: current, sessionID: result.session.id, key: current, preferences: preferences)
                 practiceID = current
                 practiceStartedAt = Date()
             }
             startHeartbeat(for: current, sessionID: result.session.id)
+            DiagnosticLog.shared.record("call.credential", fields: ["valid": String(result.realtime?.clientCredential.isValid ?? false)])
             guard let realtime = result.realtime, realtime.clientCredential.isValid else {
                 throw CallFailure.credentialUnavailable
             }
@@ -114,9 +125,11 @@ final class CallCoordinator: ObservableObject {
                     self.handle(event)
                 }
             }
+            stage = "Realtime connection"
             transportNeedsClose = true
             try await transport.connect(url: realtime.webrtcURL, credential: realtime.clientCredential.value)
             guard attempt == current else { return }
+            stage = "Realtime setup"
             try transport.send([
                 "type": "session.update",
                 "session": ["type": "realtime", "audio": ["input": [
@@ -128,13 +141,25 @@ final class CallCoordinator: ObservableObject {
             if phase == .connecting { message = "Connected. Preparing manual turns…" }
         } catch {
             guard attempt == current else { return }
+            DiagnosticLog.shared.failure("call.connect_failure", error: error, fields: ["stage": stage, "attempt": current.uuidString])
             await stopCurrent()
             if error is CallFailure {
                 fail("Connection credential unavailable. Start a new session.")
+            } else if let backendError = error as? BackendFailure, backendError == .status(429) {
+                fail("This account has started too many requests. Wait a minute, then try again.")
             } else if let transportError = error as? RealtimeFailure, transportError == .dependencyUnavailable {
                 fail("This build does not include the WebRTC binary. Use the native project variant.")
+            } else if case BackendFailure.status(let status) = error {
+                fail("Session creation failed (HTTP \(status)). Try again.")
+            } else if case RealtimeFailure.providerStatus(let status) = error {
+                fail("Realtime provider rejected the connection (HTTP \(status)). Try again.")
+            } else if case RealtimeFailure.connectionTimedOut = error {
+                fail("Realtime connection timed out. Check your network and try again.")
+            } else if error is DecodingError {
+                fail("Session response could not be read. Please update the app or contact support.")
             } else {
-                fail("Could not connect. Check your network and service, then try again.")
+                let failure = error as NSError
+                fail("\(stage) failed (\(failure.domain), \(failure.code)). Try again.")
             }
         }
     }
@@ -167,6 +192,17 @@ final class CallCoordinator: ObservableObject {
             transport.setInputEnabled(true)
             phase = .recording
             message = nil
+            recordingLimitTask?.cancel()
+            let limit = maxTurnNanoseconds
+            recordingLimitTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: limit)
+                guard let self, !Task.isCancelled, self.attempt == current,
+                      self.phase == .recording else { return }
+                await self.finishTurn()
+                if self.phase == .waitingForTranscript {
+                    self.message = "Turn ended after five minutes to keep the recording within the upload limit."
+                }
+            }
         } catch {
             guard attempt == current else { return }
             await stopCurrent()
@@ -176,6 +212,8 @@ final class CallCoordinator: ObservableObject {
 
     func finishTurn() async {
         guard phase == .recording else { return }
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
         transport.setInputEnabled(false)
         do {
             lastRecordingURL = try recorder.stop()
@@ -199,6 +237,24 @@ final class CallCoordinator: ObservableObject {
         message = nil
     }
 
+    func accountDidChange() {
+        attempt = UUID()
+        resolveClear(false)
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        transport.setInputEnabled(false)
+        transport.onEvent = nil
+        if transportNeedsClose { transportNeedsClose = false; transport.close() }
+        recorder.cancel()
+        if let url = lastRecordingURL { try? FileManager.default.removeItem(at: url) }
+        if let practiceID { try? store?.setStatus("incomplete", for: practiceID, issue: "Account changed during practice.") }
+        sessionID = nil; practiceID = nil; practiceStartedAt = nil
+        turnID = nil; committedItemID = nil; lastRecordingURL = nil
+        transcripts = []; parts = []; phase = .idle; message = nil
+    }
+
     func endAndGetFeedback() async {
         guard [.connecting, .ready, .preparingTurn, .recording, .waitingForTranscript].contains(phase) else { return }
         let current = attempt
@@ -210,10 +266,13 @@ final class CallCoordinator: ObservableObject {
         guard phase != .failed else { return }
         phase = .finishing
         attempt = UUID()
+        let finishing = attempt
         await stopCurrent(status: "ended")
+        guard attempt == finishing else { return }
         if let store, let coaching, store.practices.first(where: { $0.id == current })?.status == "ended" {
             phase = .evaluating
             message = await coaching.finish(practiceID: current, store: store)
+            guard attempt == finishing else { return }
         } else {
             message = store?.practices.first(where: { $0.id == current })?.status == "incomplete"
                 ? "Practice saved with missing data. Open History to review and retry."
@@ -222,7 +281,20 @@ final class CallCoordinator: ObservableObject {
         phase = .completed
     }
 
+    func audioRouteChanged(_ raw: UInt?) async {
+        let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+        // WebRTC reconfigures I/O ports during setRemoteDescription. This does not
+        // mean the route was lost, and cancelling here aborts a valid connection.
+        let expected = reason == .override || reason == .categoryChange || reason == .routeConfigurationChange
+        DiagnosticLog.shared.record("audio.route_change", fields: [
+            "reason": String(raw ?? 0), "action": expected ? "continue" : "stop"
+        ])
+        guard !expected else { return }
+        await stopForInterruption("Audio route changed. Start a new practice.")
+    }
+
     func stopForInterruption(_ reason: String) async {
+        DiagnosticLog.shared.record("call.interruption", fields: ["phase": String(describing: phase)])
         guard sessionID != nil || transportNeedsClose || [.requestingPermission, .connecting].contains(phase) else { return }
         attempt = UUID()
         await stopCurrent()
@@ -250,6 +322,11 @@ final class CallCoordinator: ObservableObject {
     }
 
     private func handle(_ event: RealtimeEvent) {
+        if ["session.created", "session.updated", "error", "transport.closed", "response.created", "response.done", "input_audio_buffer.cleared", "input_audio_buffer.committed"].contains(event.type) {
+            var fields = ["type": event.type, "attempt": attempt.uuidString]
+            if let code = event.errorCode { fields["provider_error_code"] = code }
+            DiagnosticLog.shared.record("call.event", fields: fields)
+        }
         switch event.type {
         case "session.updated":
             if event.turnDetectionDisabled == true && phase == .connecting {
@@ -331,6 +408,8 @@ final class CallCoordinator: ObservableObject {
         resolveClear(false)
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
         transport.setInputEnabled(false)
         transport.onEvent = nil
         if transportNeedsClose { transportNeedsClose = false; transport.close() }
@@ -364,6 +443,7 @@ final class CallCoordinator: ObservableObject {
     }
 
     private func fail(_ text: String) {
+        DiagnosticLog.shared.record("call.failed", fields: ["attempt": attempt.uuidString])
         phase = .failed
         message = text
     }

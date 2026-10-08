@@ -34,8 +34,8 @@ the SDP answer, and requests the opening question. Replies play through the audi
 element. If autoplay is blocked, use its Play control. **Disconnect** stops the
 microphone and closes WebRTC, including during setup.
 
-Use localhost or HTTPS. This same-origin client is ready for local Uvicorn use.
-Azure Functions defaults to FUNCTION protection. The hosted browser uses Azure
+Use localhost or HTTPS. Protected local API routes require a valid Entra bearer token;
+the browser sign-in flow expects Azure platform authentication. Azure Functions defaults to FUNCTION protection. The hosted browser uses Azure
 platform Microsoft sign-in and `FUNCTIONS_HTTP_AUTH_LEVEL=anonymous`, so authenticated
 browser requests do not need a Function key. Enable and verify platform sign-in
 before selecting this mode. Do not put Function keys into browser source or URLs.
@@ -116,7 +116,7 @@ The new `practice_sessions` table does not modify older tables in an existing da
 - `active` means connection credentials are ready, not that WebRTC is connected.
 - Optional `Idempotency-Key` prevents duplicate starts; keyed replays return the
   existing session with `realtime: null`. No automatic credential refresh.
-- Authentication and rate limiting are not implemented; this is a local-development API.
+- Backend account ownership and per-account quotas are implemented; hosted identity-header verification and edge limits remain deployment gates.
 - The browser supports one call at a time, opening speech, safe error messages,
   final AI speech text, a setup timeout, and explicit reconnect via a new Start.
   It saves learner/agent transcripts, sends heartbeats, ends sessions, and requests
@@ -125,6 +125,9 @@ The new `practice_sessions` table does not modify older tables in an existing da
   under the same turn ID as its transcript, and displays speech assessment. It
   does not refresh credentials or enforce the requested session duration.
   Disconnect does not change the backend session row.
+  After completed feedback, the browser remembers the last report's session ID
+  under the verified account and reloads that report after a page refresh. The feedback panel can forget that
+  local reference. Active calls and unsaved uploads do not resume.
 
 ## Tests
 
@@ -165,8 +168,8 @@ Azure account. Open [the hosted practice page](https://spoken-agent-func-4fa2534
 Azure platform authentication protects the page and API; the Function trigger uses
 `FUNCTIONS_HTTP_AUTH_LEVEL=anonymous` behind that protection. The default remains
 `function` for other deployments. Never disable platform authentication while the
-trigger is anonymous. Additional users require explicit access assignments; the
-application does not yet implement session ownership for multiple users.
+trigger is anonymous. Additional users require explicit access assignments and hosted two-account
+verification. Backend and browser account isolation are implemented locally.
 
 Configure `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and
 `AZURE_OPENAI_DEPLOYMENT` in the Function App environment variables. The endpoint

@@ -94,7 +94,8 @@ def test_concurrent_retries(agent_transcript):
     _, settings, base, body = agent_transcript
     def save(_):
         return store_agent_transcript(settings.database_path, base.split('/')[2],
-                                     'agent_1', 0, AgentTranscript(**body).model_dump_json())
+                                     'agent_1', 0, AgentTranscript(**body).model_dump_json(),
+                                     '00000000-0000-4000-8000-000000000001')
     with ThreadPoolExecutor(max_workers=4) as pool:
         outcomes = list(pool.map(save, range(4)))
     assert sorted(outcomes) == ['created', 'exists', 'exists', 'exists']

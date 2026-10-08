@@ -18,15 +18,35 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>EntraAPIScope</key>
+	<string>$(ENTRA_API_SCOPE)</string>
+	<key>EntraClientID</key>
+	<string>$(ENTRA_CLIENT_ID)</string>
+	<key>EntraTenantID</key>
+	<string>$(ENTRA_TENANT_ID)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>msauthv2</string>
+		<string>msauthv3</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Spoken Agents uses the microphone for speaking practice.</string>
+	<string>Record your speaking turns during a live practice and upload them for pronunciation and fluency feedback.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

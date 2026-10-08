@@ -1,7 +1,7 @@
 import XCTest
 @testable import SpokenAgents
 
-final class SessionAPITests: XCTestCase {
+@MainActor final class SessionAPITests: XCTestCase {
     func testCreateSessionSendsKeyAndDecodesCredential() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
@@ -79,6 +79,20 @@ final class SessionAPITests: XCTestCase {
         let answer = try await exchange.exchange(offer: "v=0\r\noffer",
             url: URL(string: "https://example.com/openai/v1/realtime/calls")!, credential: "temporary-token")
         XCTAssertEqual(answer, "v=0\r\nanswer")
+    }
+
+    func testSDPExchangePreservesProviderRejectionStatus() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { _ in (401, Data("unauthorized".utf8)) }
+        defer { StubURLProtocol.handler = nil }
+        let exchange = HTTPSDPExchanger(session: URLSession(configuration: configuration))
+        do {
+            _ = try await exchange.exchange(offer: "v=0", url: URL(string: "https://example.com/openai/v1/realtime/calls")!, credential: "temporary-token")
+            XCTFail("Expected provider rejection")
+        } catch RealtimeFailure.providerStatus(let status) {
+            XCTAssertEqual(status, 401)
+        }
     }
 
     func testSDPExchangeRejectsUnsafeURLBeforeSendingCredential() async {

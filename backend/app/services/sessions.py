@@ -13,9 +13,9 @@ from app.services.realtime import create_realtime_session
 from app.storage.sqlite import end_stored_session, heartbeat_stored_session, save_creating_session, update_session
 
 
-def heartbeat_session(session_id: str, settings: Settings) -> HeartbeatResponse:
+def heartbeat_session(session_id: str, settings: Settings, account_id: str) -> HeartbeatResponse:
     try:
-        outcome, last_activity_at = heartbeat_stored_session(settings.database_path, session_id)
+        outcome, last_activity_at = heartbeat_stored_session(settings.database_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
     if outcome == "not_found":
@@ -25,9 +25,9 @@ def heartbeat_session(session_id: str, settings: Settings) -> HeartbeatResponse:
     return HeartbeatResponse(session_id=session_id, last_activity_at=last_activity_at)
 
 
-def end_session(session_id: str, settings: Settings) -> EndSessionResponse:
+def end_session(session_id: str, settings: Settings, account_id: str) -> EndSessionResponse:
     try:
-        outcome, ended_at = end_stored_session(settings.database_path, session_id)
+        outcome, ended_at = end_stored_session(settings.database_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
     if outcome == "not_found":
@@ -37,7 +37,7 @@ def end_session(session_id: str, settings: Settings) -> EndSessionResponse:
     return EndSessionResponse(session_id=session_id, ended_at=ended_at)
 
 
-def create_session(request: SessionCreate, settings: Settings,
+def create_session(request: SessionCreate, settings: Settings, account_id: str,
                    idempotency_key: str | None = None) -> CreateSessionResponse:
     try:
         endpoint = urlsplit(settings.azure_openai_endpoint)
@@ -52,7 +52,7 @@ def create_session(request: SessionCreate, settings: Settings,
 
     session = Session(id=str(uuid4()), created_at=datetime.now(timezone.utc), preferences=request)
     try:
-        reservation = save_creating_session(settings.database_path, session, idempotency_key)
+        reservation = save_creating_session(settings.database_path, session, account_id, idempotency_key)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
 

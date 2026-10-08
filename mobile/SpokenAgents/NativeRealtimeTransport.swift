@@ -18,10 +18,14 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
     func connect(url: URL, credential: String) async throws {
         close()
         let current = generation
+        DiagnosticLog.shared.record("rtc.connect", fields: ["transport": current.uuidString])
         let audio = AVAudioSession.sharedInstance()
+        DiagnosticLog.shared.record("audio.activate_start")
         try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try audio.setActive(true)
         audioSessionActive = true
+        DiagnosticLog.shared.record("audio.activated", fields: ["sample_rate": String(audio.sampleRate),
+            "input_channels": String(audio.inputNumberOfChannels), "output_channels": String(audio.outputNumberOfChannels)])
 
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
@@ -41,6 +45,7 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         channel.delegate = self
 
         do {
+            DiagnosticLog.shared.record("rtc.offer_start")
             let offer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RTCSessionDescription, Error>) in
                 peer.offer(for: constraints) { offer, error in
                     if let error { continuation.resume(throwing: error) }
@@ -48,9 +53,13 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
                     else { continuation.resume(throwing: RealtimeFailure.invalidAnswer) }
                 }
             }
+            DiagnosticLog.shared.record("rtc.offer_created")
             try await setLocal(offer, on: peer)
+            DiagnosticLog.shared.record("rtc.local_description_set")
             let answer = try await sdp.exchange(offer: offer.sdp, url: url, credential: credential)
+            DiagnosticLog.shared.record("rtc.answer_received")
             try await setRemote(RTCSessionDescription(type: .answer, sdp: answer), on: peer)
+            DiagnosticLog.shared.record("rtc.remote_description_set")
             guard generation == current else { throw CancellationError() }
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 opening = continuation
@@ -61,12 +70,14 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
                 }
             }
         } catch {
+            DiagnosticLog.shared.failure("rtc.connect_failure", error: error, fields: ["transport": current.uuidString])
             close()
             throw error
         }
     }
 
     func send(_ payload: [String: Any]) throws {
+        if let type = payload["type"] as? String { DiagnosticLog.shared.record("rtc.send", fields: ["type": type]) }
         guard let channel, channel.readyState == .open else { throw RealtimeFailure.channelUnavailable }
         let data = try JSONSerialization.data(withJSONObject: payload)
         guard channel.sendData(RTCDataBuffer(data: data, isBinary: false)) else {
@@ -82,6 +93,7 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
 
     func close() {
         guard audioSessionActive || peer != nil || channel != nil || opening != nil else { return }
+        DiagnosticLog.shared.record("rtc.close", fields: ["transport": generation.uuidString])
         generation = UUID()
         failOpening(CancellationError())
         inputTrack?.isEnabled = false
@@ -116,11 +128,13 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
     }
 
     private func completeOpening() {
+        DiagnosticLog.shared.record("rtc.channel_open")
         opening?.resume()
         opening = nil
     }
 
     private func failOpening(_ error: Error) {
+        if opening != nil { DiagnosticLog.shared.failure("rtc.channel_open_failure", error: error) }
         opening?.resume(throwing: error)
         opening = nil
     }
@@ -130,6 +144,7 @@ extension NativeRealtimeTransport: RTCDataChannelDelegate {
     func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.channel === dataChannel else { return }
+            DiagnosticLog.shared.record("rtc.channel_state", fields: ["state": String(dataChannel.readyState.rawValue)])
             if dataChannel.readyState == .open { self.completeOpening() }
             else if dataChannel.readyState == .closed { self.failOpening(RealtimeFailure.channelUnavailable) }
         }
@@ -145,11 +160,14 @@ extension NativeRealtimeTransport: RTCDataChannelDelegate {
 }
 
 extension NativeRealtimeTransport: RTCPeerConnectionDelegate {
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {
+        DiagnosticLog.shared.record("rtc.signaling_state", fields: ["state": String(stateChanged.rawValue)])
+    }
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        DiagnosticLog.shared.record("rtc.ice_state", fields: ["state": String(newState.rawValue)])
         if newState == .failed || newState == .closed {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.peer === peerConnection else { return }
@@ -157,7 +175,9 @@ extension NativeRealtimeTransport: RTCPeerConnectionDelegate {
             }
         }
     }
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+        DiagnosticLog.shared.record("rtc.ice_gathering", fields: ["state": String(newState.rawValue)])
+    }
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}

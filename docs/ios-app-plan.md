@@ -1,6 +1,6 @@
 # iOS app implementation plan
 
-**Status:** Phases 0–4 completed at their simulator gates; Phase 5 is next.\
+**Status:** Phases 0–4 completed at their simulator gates; Phase 5 is in progress.\
 **Source:** [iOS app design](ios-app-design.md).\
 **Scope:** One foreground speaking practice at a time on a physical iPhone, with local history and an offline-readable coaching report.
 
@@ -66,7 +66,13 @@ Each phase produces a buildable, testable, simulator-runnable artifact and has a
 
 ### 5. Verify the complete app on a physical iPhone and prepare the hosted release
 
-- Define and implement native sign-in and backend access policy for the protected API. The current hosted browser cookie and Function key are not a native authentication contract; never bundle a Function key or provider secret.
+The backend, browser, and native isolation implementations in the
+[account isolation plan](account-isolation-plan.md) are ready for hosted
+configuration and physical-device verification. The browser and iOS clients
+resolve the same backend account through `/me`; the existing local `local`
+partition remains unassigned.
+
+- Register the native public client and delegated API scope, configure the tenant and approved client ID at the host, and verify real-device sign-in, refresh, sign-out, and cross-account denial. Never bundle a Function key or provider secret.
 - Verify durable hosted session storage and application-level ownership before claiming multi-user report retention or public availability. Add rate limiting for public use.
 - Complete privacy and accessibility review: file protection, log redaction, backup/retention policy, VoiceOver, Dynamic Type, reachable controls, and microphone permission wording.
 - After all features pass simulator gates, run one consolidated physical-device matrix covering microphone permission, opening question, manual turns, learner-only recording during WebRTC, speaker, wired or Bluetooth output, interruption, backgrounding, dropped network, saving/retry, offline history, and real provider evaluation. Inspect uploaded audio for completeness and transcript alignment. Fix failures and repeat affected device cases before release.
@@ -209,3 +215,35 @@ xcrun simctl launch 67F852BC-E504-4F4B-91BD-D2ED3D42D141 com.spokenagents.app
 
 Implementation commit: `41a97f6`. Device audio, hosted access, provider
 behavior, and migration remain Phase 5 checks.
+
+### Phase 5 local implementation and verification — 2026-10-02
+
+**In progress.** The backend now applies transactional per-account limits to
+protected requests, session starts, and evaluation starts. It returns 429 with
+`Retry-After` before provider work. The native app ends a learner turn after five
+minutes so its 16 kHz mono WAV stays below the 10 MiB upload limit, protects its
+temporary recording, and removes acknowledged upload bytes only after a complete
+report is durable. VoiceOver labels and microphone permission wording were
+reviewed and improved. The native project was regenerated from
+`mobile/project-native.yml`.
+
+Python 3.11: **225 backend tests passed**. Node: **58 browser tests passed**.
+Xcode 27.0, iPhone 18 Pro simulator (iOS 27.0): **39 unit/UI tests passed**, zero
+failed, in `/private/tmp/spoken-agents-phase5-tests.xcresult`. A native arm64
+iPhone build compiled with signing disabled. The connected physical iPhone is an
+iPhone 16 Pro on iOS 27.0, but no app was installed: the local signing identities
+report revoked certificates and there is no provisioning profile. The native
+client ID, delegated API scope, and hosted API build URL are not yet configured.
+Azure account metadata was readable, but hosted Function App configuration
+queries did not complete and the hosted practice URL timed out after ten seconds,
+so no deployment or two-account hosted test is claimed. The simulator test run
+passed; an additional standalone launch check did not complete.
+
+Still required for the Phase 5 gate: repair development signing; configure the
+native Entra registration and hosted API; verify the Azure authentication
+boundary, durable storage, and cross-account denial; perform the complete
+physical-device matrix in `ios-integration-decisions.md`, including a real
+provider conversation, uploaded audio inspection, offline report, migration,
+VoiceOver, and Dynamic Type. Record deployment and device evidence before
+TestFlight distribution. Public rollout also needs an edge limit for anonymous
+or invalid-token traffic and a storage capacity decision for higher volume.

@@ -35,6 +35,7 @@ practice duration does not enforce a connection lifetime or token lifetime.
 | 200 | Keyed replay of current session; realtime is null |
 | 409 | Key conflicts with preferences or creation is in progress |
 | 201 | Application session and Realtime credential prepared |
+| 429 | Account request or session-start quota reached; `Retry-After` gives seconds to wait |
 | 415 | Content type is not application/json |
 | 422 | Request validation failed or JSON is malformed |
 | 502 | Provider rejected the request, failed, or returned invalid data |
@@ -43,8 +44,11 @@ practice duration does not enforce a connection lifetime or token lifetime.
 
 Errors use `{"detail": ...}`. Validation detail is a list of field errors; other
 detail values are strings. Azure Functions requires a function key via
-`x-functions-key` (missing/invalid keys return 401). Per-user authentication and
-rate limiting are not implemented. Local FastAPI TestClient bypasses the Azure host.
+`x-functions-key` only when the Function trigger uses key protection. The hosted
+browser uses Azure platform sign-in; native clients use validated Entra bearer
+tokens. Account ownership and per-account rate limits are implemented locally;
+the Azure trust boundary and edge limits remain deployment checks. Local FastAPI
+TestClient bypasses the Azure host.
 
 ## Verification
 
@@ -66,7 +70,8 @@ These checks did not establish a browser WebRTC connection.
 - [x] Real Azure provider credential request and hosted session creation smoke test.
 - [ ] Browser WebRTC voice smoke test.
 - [x] Azure function-key protection for hosted testing.
-- [ ] Per-user authentication and rate limiting before public use.
+- [x] Per-user ownership and database-backed account quotas implemented locally.
+- [ ] Verify hosted authentication and add an edge limit before public use.
 - [ ] Explicit OpenAPI request and response examples.
 - [x] Optional idempotency keys with credential-free replay.
 - [x] Recover stale creating rows and reject late activation.

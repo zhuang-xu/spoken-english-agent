@@ -137,6 +137,7 @@ import SwiftData
     }
 
     func queuePayload(id: String, practiceID: UUID, kind: String, bytes: Data, contentType: String) throws {
+        guard practices.contains(where: { $0.id == practiceID }) else { throw StoreFailure.missingPayload }
         let hash = Self.hash(bytes)
         if let existing = journal.first(where: { $0.id == id && $0.practiceID == practiceID }) {
             guard existing.sha256 == hash else { throw StoreFailure.conflictingContent }
@@ -147,6 +148,7 @@ import SwiftData
     }
 
     func queueAudio(turnID: UUID, practiceID: UUID, source: URL) throws {
+        guard practices.contains(where: { $0.id == practiceID }) else { throw StoreFailure.missingPayload }
         let id = "audio/\(turnID.uuidString)"
         let bytes = try Data(contentsOf: source)
         guard bytes.count > 44, bytes.count <= 10 * 1024 * 1024 else { throw StoreFailure.invalidAudio }
@@ -188,6 +190,18 @@ import SwiftData
         let report = try JSONDecoder().decode(CoachingResponse.self, from: data)
         guard report.validCompleted else { throw StoreFailure.corruptPayload }
         record.reportData = data; record.status = "feedbackReady"; record.issue = nil; record.updatedAt = Date()
+        try save()
+        // Once the complete report is durable, acknowledged upload bytes are no longer
+        // needed for retry. Keep pending items intact for recovery.
+        for item in journal where item.practiceID == practiceID && item.receipt == "accepted" {
+            if let name = item.fileName {
+                do {
+                    try manager.removeItem(at: files.appending(path: name))
+                    item.fileName = nil
+                } catch { continue }
+            }
+            item.payload = nil
+        }
         try save()
     }
 

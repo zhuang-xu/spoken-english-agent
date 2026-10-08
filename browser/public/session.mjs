@@ -1,7 +1,10 @@
+import { AccountError } from "./account.mjs";
 // Same-origin backend requests. Never persist credentials or raw error responses.
 export class BackendError extends Error {
   constructor(status, path = "") {
-    super(status === 404 ? "This session is no longer available on the server. Start a new conversation." :
+    super(status === 401 ? "Your sign-in expired. Sign in again, then retry." :
+      status === 403 ? "This account does not have access to practice." :
+      status === 404 ? "This session is no longer available on the server. Start a new conversation." :
       status === 502 && path === "/evaluation" ? "The feedback service could not complete the report. Your session is saved; try Get feedback again." :
       status ? `Backend request failed (HTTP ${status}). Please retry.` : "Backend unavailable. Check your connection and retry.");
     this.status = status;
@@ -10,6 +13,20 @@ export class BackendError extends Error {
 
 const transientSaveError = error => error instanceof BackendError &&
   (!error.status || error.status === 408 || error.status === 429 || error.status >= 500);
+
+export async function loadEvaluation(id, fetchImpl = (...args) => globalThis.fetch(...args)) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetchImpl(`/sessions/${encodeURIComponent(id)}/evaluation`, {
+      method: "GET", cache: "no-store", credentials: "same-origin", signal: controller.signal,
+    });
+    if (!response.ok) throw new BackendError(response.status, "/evaluation");
+    return await response.json();
+  } catch (error) {
+    throw error instanceof BackendError ? error : new BackendError();
+  } finally { clearTimeout(timer); }
+}
 
 export class SessionSync {
   constructor(id, { fetchImpl = (...args) => globalThis.fetch(...args), uuid = () => crypto.randomUUID(),
@@ -25,11 +42,15 @@ export class SessionSync {
     this.uploads = new Map();
     this.ended = false;
     this.ready = false;
+    this.invalidated = false;
+    this.controllers = new Set();
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs);
   }
 
   async request(path, { method = "POST", body, contentType, keepalive = false } = {}) {
+    if (this.invalidated) throw new AccountError("changed");
     const controller = new AbortController();
+    this.controllers.add(controller);
     const timeout = path === "/evaluation" ? 200000 : path.endsWith("/audio") ? 130000 : 30000;
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -37,11 +58,29 @@ export class SessionSync {
         method, cache: "no-store", credentials: "same-origin", signal: controller.signal, keepalive,
         ...(body === undefined ? {} : { headers: { "Content-Type": contentType || "application/json" }, body: contentType ? body : JSON.stringify(body) }),
       });
+      if (this.invalidated) throw new AccountError("changed");
       if (!response.ok) throw new BackendError(response.status, path);
-      return await response.json();
+      const result = await response.json();
+      if (this.invalidated) throw new AccountError("changed");
+      return result;
     } catch (error) {
-      throw error instanceof BackendError ? error : new BackendError();
-    } finally { clearTimeout(timer); }
+      throw error instanceof BackendError || error instanceof AccountError ? error : new BackendError();
+    } finally { clearTimeout(timer); this.controllers.delete(controller); }
+  }
+
+  cancel() {
+    this.invalidated = true;
+    this.ended = true;
+    this.ready = false;
+    clearInterval(this.timer);
+    for (const controller of this.controllers) controller.abort();
+    this.controllers.clear();
+    this.turns.clear();
+    this.recordedTurns.clear();
+    this.parts.clear();
+    for (const upload of this.uploads.values()) upload.body = null;
+    this.uploads.clear();
+    this.bufferedAudioBytes = 0;
   }
 
   async heartbeat() {
@@ -82,6 +121,7 @@ export class SessionSync {
     if (!turn) return;
     turn.end = Math.max(turn.start + 1, end);
     const pending = Promise.resolve(result).then(({ blob, error }) => {
+      if (this.invalidated) return;
       if (error || !blob || !blob.size || blob.size > 10 * 1024 * 1024) {
         this.captureFailed = true;
         this.onChange(error || "Audio recording is missing or too large. Feedback is unavailable.");
@@ -138,18 +178,19 @@ export class SessionSync {
   }
 
   queue(path, body, contentType) {
-    if (this.uploads.has(path)) return;
+    if (this.invalidated || this.uploads.has(path)) return;
     const upload = { path, body, contentType, saved: false };
     this.uploads.set(path, upload);
     void this.send(upload);
   }
 
   async send(upload) {
-    if (upload.saved) return;
+    if (this.invalidated || upload.saved) return;
     if (upload.pending) return upload.pending;
     upload.pending = (async () => {
       try {
         await this.request(upload.path, { method: "PUT", body: upload.body, contentType: upload.contentType });
+        if (this.invalidated) return;
         upload.saved = true;
         upload.error = null;
         if (upload.contentType) {
@@ -167,6 +208,7 @@ export class SessionSync {
   }
 
   finish({ keepalive = false } = {}) {
+    if (this.invalidated) return Promise.resolve(null);
     this.ended = true;
     clearInterval(this.timer);
     if (this.finishing) return this.finishing;
@@ -177,6 +219,7 @@ export class SessionSync {
   async finalize(keepalive) {
     this.ready = false;
     for (let attempt = 0; attempt < this.saveRetryDelays.length; attempt++) {
+      if (this.invalidated) return null;
       if (attempt) {
         this.onChange(`Saving session… automatic retry ${attempt + 1} of ${this.saveRetryDelays.length}.`);
         await this.wait(this.saveRetryDelays[attempt]);
@@ -211,6 +254,12 @@ export class SessionSync {
         }
         return status;
       } catch (error) {
+        if (this.invalidated) return null;
+        if (error instanceof AccountError || error?.status === 401 || error?.status === 403) {
+          this.onChange(error.message);
+          this.onSaveFailed(error.message);
+          return null;
+        }
         if (!transientSaveError(error)) {
           const note = `${error.message} Feedback is unavailable for this session.`;
           this.onChange(note);
@@ -226,6 +275,7 @@ export class SessionSync {
   }
 
   async evaluate() {
+    if (this.invalidated) throw new AccountError("changed");
     if (!this.ready) throw new Error("Save a complete session before requesting feedback.");
     return this.request("/evaluation");
   }

@@ -1,7 +1,7 @@
 # iOS integration decisions and device matrix
 
-**Recorded:** 2026-09-27. **Implementation status:** Phase 4 simulator gate passed;
-device behavior and hosted authentication remain pending later phases.
+**Recorded:** 2026-09-27. **Implementation status:** Phase 5 local build and tests
+passed on 2026-10-02; physical-device behavior and hosted authentication remain pending.
 
 ## Integration choices
 
@@ -9,8 +9,8 @@ device behavior and hosted authentication remain pending later phases.
 |---|---|
 | Minimum OS and storage | iOS 17.0; use SwiftData for the Phase 3 local store. Xcode 27.0 built and tested the app on iOS 27.0 simulator. Migration behavior remains unverified. |
 | Native media | Swift Package Manager pins `stasel/WebRTC` 153.0.0 in `mobile/project-native.yml` and the checked-in project. Its package declares iOS 10 as its library minimum; the app minimum is iOS 17. The downloaded XCFramework is about 97 MiB on disk, with a 12 MiB iOS arm64 framework. The checked-out license is BSD 3-Clause with bundled WebRTC notices. Xcode 27.0 compiled and linked it; live peer compatibility is a device check. |
-| Learner audio | WebRTC owns the local audio track. `AVAudioRecorder` writes a separate 16 kHz, mono, 16-bit PCM WAV for each manual turn within the same `AVAudioSession`. The native test decodes a matching one-second WAV fixture. A recording is rejected if it exceeds the backend's 10 MiB per-turn limit. Concurrent capture and microphone isolation require the device matrix below. A single turn should be capped at five minutes before release at this format. |
-| Local journal | Phase 3 caps pending audio at 200 MiB per account and each turn at 10 MiB. Pending audio stays until a later evaluation cleanup or local deletion. The SwiftData store and audio directory use file protection and backup exclusion, and records are partitioned by account ID. Native sign-in and automatic post-evaluation audio cleanup remain later-phase work. |
+| Learner audio | WebRTC owns the local audio track. `AVAudioRecorder` writes a separate 16 kHz, mono, 16-bit PCM WAV for each manual turn within the same `AVAudioSession`. The native test decodes a matching one-second WAV fixture. A recording is rejected if it exceeds the backend's 10 MiB per-turn limit; the app automatically ends a turn after five minutes. Concurrent capture and microphone isolation require the device matrix below. |
+| Local journal | Pending audio is capped at 200 MiB per account and each turn at 10 MiB. It stays until a complete report is saved or the practice is locally deleted; accepted upload bytes are then removed while pending retries remain. The SwiftData store, audio directory, and temporary turn recording use file protection; persistent files are excluded from backup. Records are partitioned by verified account ID. |
 | Configuration | `API_BASE_URL` is nonsecret build configuration. The short-lived Realtime credential stays in memory. No Function key or provider secret belongs in the app. |
 
 ## Consolidated physical iPhone pass for Phase 5

@@ -8,7 +8,7 @@ from app.schemas import SessionDataStatus, UploadManifest
 from app.storage.completeness import manifest_from_sets, manifest_sets, session_data_status
 
 
-def get_data_status(settings: Settings, session_id: str,
+def get_data_status(settings: Settings, session_id: str, account_id: str,
                     manifest: UploadManifest | None = None) -> SessionDataStatus:
     if manifest is not None:
         parts = manifest_sets(manifest)
@@ -17,7 +17,7 @@ def get_data_status(settings: Settings, session_id: str,
             raise HTTPException(422, 'Upload manifest contains duplicate components.')
         manifest = UploadManifest.model_validate(manifest_from_sets(parts).model_dump())
     try:
-        outcome, result = session_data_status(settings.database_path, session_id, manifest)
+        outcome, result = session_data_status(settings.database_path, session_id, account_id, manifest)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Session storage is unavailable.') from None
     errors = {

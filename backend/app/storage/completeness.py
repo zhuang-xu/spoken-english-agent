@@ -18,14 +18,14 @@ def manifest_from_sets(parts: tuple[set, set, set]) -> UploadInventory:
     )
 
 
-def session_data_status(database_path: str, session_id: str, manifest: UploadManifest | None = None
+def session_data_status(database_path: str, session_id: str, account_id: str, manifest: UploadManifest | None = None
                         ) -> tuple[str, SessionDataStatus | None]:
     with database_connection(database_path) as connection:
         connection.execute('BEGIN IMMEDIATE')
         if not migrate_session_lifecycle(connection):
             return 'not_found', None
-        row = connection.execute('SELECT status, upload_manifest FROM practice_sessions WHERE id=?',
-                                 (session_id,)).fetchone()
+        row = connection.execute('SELECT status, upload_manifest FROM practice_sessions WHERE id=? AND owner_account_id=?',
+                                 (session_id, account_id)).fetchone()
         if row is None:
             return 'not_found', None
         status, saved = row
@@ -35,7 +35,7 @@ def session_data_status(database_path: str, session_id: str, manifest: UploadMan
             payload = manifest.model_dump_json()
             if saved is not None and saved != payload:
                 return 'conflict', None
-            connection.execute('UPDATE practice_sessions SET upload_manifest=? WHERE id=?', (payload, session_id))
+            connection.execute('UPDATE practice_sessions SET upload_manifest=? WHERE id=? AND owner_account_id=?', (payload, session_id, account_id))
             saved = payload
         return "ok", data_status_on_connection(connection, session_id, status, saved)
 

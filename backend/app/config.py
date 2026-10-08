@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     azure_speech_key: SecretStr = SecretStr("")
     azure_speech_region: str = ""
     realtime_voice: str = "verse"
+    entra_tenant_id: str = ""
+    entra_api_audience: str = ""
+    entra_scope: str = ""
+    entra_allowed_client_ids: str = ""
+    trust_azure_platform_auth: bool = False
+    account_requests_per_minute: int = Field(default=120, ge=1)
+    account_sessions_per_hour: int = Field(default=20, ge=1)
+    account_evaluations_per_hour: int = Field(default=20, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

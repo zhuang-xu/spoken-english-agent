@@ -167,3 +167,58 @@ test("failed recording stays declared and blocks evaluation", async () => {
   assert.deepEqual(JSON.parse(h.requests.at(-1).body).audio_turn_ids, [id]);
   await assert.rejects(h.session.evaluate(), /complete session/);
 });
+
+test('expired sign-in retains exact audio for retry after the same account returns', async () => {
+  const { AccountBoundary } = await import('../public/account.mjs');
+  const owner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  let expired = false;
+  const requests = [];
+  const boundary = new AccountBoundary({ fetchImpl: async (url, init) => {
+    requests.push({ url, ...init });
+    if (url === '/me') return expired ? { ok: false, status: 401 } :
+      { ok: true, status: 200, json: async () => ({ account_id: owner }) };
+    return expired ? { ok: false, status: 401 } :
+      { ok: true, status: 200, json: async () => ({ ready_for_evaluation: true }) };
+  } });
+  await boundary.check();
+  const session = new SessionSync('session-id', {
+    fetchImpl: (url, init) => boundary.fetchFor(owner, url, init),
+    saveRetryDelays: [0], wait: async () => {},
+  });
+  const audio = new Blob(['exact bytes'], { type: 'audio/webm' });
+  expired = true;
+  session.queue('/learner-turns/turn-1/audio', audio, 'audio/webm');
+  await session.uploads.values().next().value.pending;
+  assert.equal(await session.finish(), null);
+  assert.equal(session.uploads.values().next().value.body, audio);
+  expired = false;
+  await boundary.check({ recover: true });
+  await session.finish();
+  assert.equal(session.ready, true);
+  const sent = requests.filter(request => request.url.endsWith('/audio'));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body, audio);
+  assert.equal(sent[0].headers['X-Expected-Account-ID'], owner);
+});
+
+test('account switch cancels pending uploads and discards buffered audio', async () => {
+  let resolveUpload;
+  const pending = new Promise(resolve => { resolveUpload = resolve; });
+  const requests = [];
+  const session = new SessionSync('session-id', {
+    fetchImpl: (url, init) => { requests.push({ url, ...init }); return pending; },
+  });
+  const audio = new Blob(['private audio'], { type: 'audio/webm' });
+  session.queue('/learner-turns/turn-1/audio', audio, 'audio/webm');
+  assert.equal(requests.length, 1);
+  session.cancel();
+  resolveUpload({ ok: true, status: 200, json: async () => ({}) });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(session.uploads.size, 0);
+  assert.equal(session.ready, false);
+  session.queue('/learner-turns/turn-2/audio', audio, 'audio/webm');
+  await session.finish();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].signal.aborted, true);
+});

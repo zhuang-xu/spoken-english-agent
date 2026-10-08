@@ -13,14 +13,16 @@ def migrate_session_lifecycle(connection: sqlite3.Connection) -> bool:
     ).fetchone():
         return False
     columns = {row[1] for row in connection.execute("PRAGMA table_info(practice_sessions)")}
-    for column in ("ended_at", "last_activity_at", "end_reason", "idempotency_key", "upload_manifest"):
+    for column in ("ended_at", "last_activity_at", "end_reason", "idempotency_key", "upload_manifest", "owner_account_id"):
         if column not in columns:
             connection.execute(f"ALTER TABLE practice_sessions ADD COLUMN {column} TEXT")
     connection.execute("UPDATE practice_sessions SET last_activity_at=created_at WHERE last_activity_at IS NULL")
     connection.execute("UPDATE practice_sessions SET end_reason='client_requested' "
                        "WHERE status='ended' AND end_reason IS NULL")
-    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS session_idempotency_key "
-                       "ON practice_sessions(idempotency_key) WHERE idempotency_key IS NOT NULL")
+    connection.execute("DROP INDEX IF EXISTS session_idempotency_key")
+    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS session_owner_idempotency_key "
+                       "ON practice_sessions(owner_account_id, idempotency_key) "
+                       "WHERE owner_account_id IS NOT NULL AND idempotency_key IS NOT NULL")
     return True
 
 
@@ -32,12 +34,12 @@ def touch_activity(connection: sqlite3.Connection, session_id: str) -> str:
     return now
 
 
-def heartbeat_stored_session(database_path: str, session_id: str) -> tuple[str, str | None]:
+def heartbeat_stored_session(database_path: str, session_id: str, account_id: str) -> tuple[str, str | None]:
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
         if not migrate_session_lifecycle(connection):
             return "not_found", None
-        row = connection.execute("SELECT status FROM practice_sessions WHERE id=?", (session_id,)).fetchone()
+        row = connection.execute("SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)).fetchone()
         if row is None:
             return "not_found", None
         if row[0] != "active":
@@ -78,7 +80,7 @@ def fail_stale_creating_sessions(database_path: str, timeout_seconds: int = 300)
         ).rowcount
 
 
-def save_creating_session(database_path: str, session: Session,
+def save_creating_session(database_path: str, session: Session, account_id: str,
                           idempotency_key: str | None = None) -> tuple[str, Session] | None:
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -94,8 +96,9 @@ def save_creating_session(database_path: str, session: Session,
         migrate_session_lifecycle(connection)
         if idempotency_key is not None:
             row = connection.execute(
-                "SELECT id, status, created_at, preferences FROM practice_sessions WHERE idempotency_key=?",
-                (idempotency_key,),
+                "SELECT id, status, created_at, preferences FROM practice_sessions "
+                "WHERE owner_account_id=? AND idempotency_key=?",
+                (account_id, idempotency_key),
             ).fetchone()
             if row is not None:
                 previous = Session(id=row[0], status=row[1], created_at=row[2],
@@ -103,26 +106,24 @@ def save_creating_session(database_path: str, session: Session,
                 return ("replay" if previous.preferences == session.preferences else "conflict"), previous
         connection.execute(
             "INSERT INTO practice_sessions "
-            "(id, status, created_at, preferences, provider_session_id, last_activity_at, idempotency_key) "
-            "VALUES (?, 'creating', ?, ?, NULL, ?, ?)",
+            "(id, status, created_at, preferences, provider_session_id, last_activity_at, idempotency_key, owner_account_id) "
+            "VALUES (?, 'creating', ?, ?, NULL, ?, ?, ?)",
             (session.id, session.created_at.isoformat(), session.preferences.model_dump_json(),
-             session.created_at.isoformat(), idempotency_key),
+             session.created_at.isoformat(), idempotency_key, account_id),
         )
         return None
 
 
-def end_stored_session(database_path: str, session_id: str) -> tuple[str, str | None]:
+def end_stored_session(database_path: str, session_id: str, account_id: str) -> tuple[str, str | None]:
     """Serialize end requests and preserve the first end timestamp, including on retries."""
     from datetime import datetime, timezone
 
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if not connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='practice_sessions'"
-        ).fetchone():
+        if not migrate_session_lifecycle(connection):
             return "not_found", None
         row = connection.execute(
-            "SELECT status FROM practice_sessions WHERE id=?", (session_id,)
+            "SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()
         if row is None:
             return "not_found", None
@@ -131,11 +132,11 @@ def end_stored_session(database_path: str, session_id: str) -> tuple[str, str | 
         migrate_session_lifecycle(connection)
         if row[0] == "active":
             connection.execute(
-                "UPDATE practice_sessions SET status='ended', ended_at=?, end_reason='client_requested' WHERE id=?",
-                (datetime.now(timezone.utc).isoformat(), session_id),
+                "UPDATE practice_sessions SET status='ended', ended_at=?, end_reason='client_requested' WHERE id=? AND owner_account_id=?",
+                (datetime.now(timezone.utc).isoformat(), session_id, account_id),
             )
         ended_at = connection.execute(
-            "SELECT ended_at FROM practice_sessions WHERE id=?", (session_id,)
+            "SELECT ended_at FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()[0]
         if ended_at is None:
             raise sqlite3.DatabaseError("Ended session has no timestamp.")
@@ -157,7 +158,7 @@ def update_session(database_path: str, session_id: str, status: str,
 
 
 def store_learner_input(database_path: str, session_id: str, turn_id: str,
-                        component: str, payload: bytes | str,
+                        component: str, payload: bytes | str, account_id: str,
                         media_type: str | None = None) -> tuple[str, bool, bool]:
     """Atomically store an immutable component or acknowledge an identical retry."""
     from datetime import datetime, timezone
@@ -166,12 +167,10 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
         raise ValueError("Unknown input component")
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if not connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='practice_sessions'"
-        ).fetchone():
+        if not migrate_session_lifecycle(connection):
             return "not_found", False, False
         session = connection.execute(
-            "SELECT status FROM practice_sessions WHERE id = ?", (session_id,)
+            "SELECT status FROM practice_sessions WHERE id = ? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()
         if session is None:
             return "not_found", False, False
@@ -222,18 +221,16 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
 
 
 def store_agent_transcript(database_path: str, session_id: str, item_id: str,
-                           content_index: int, payload: str) -> str:
+                           content_index: int, payload: str, account_id: str) -> str:
     """Store one immutable provider content part, independent of arrival order."""
     from datetime import datetime, timezone
 
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if not connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='practice_sessions'"
-        ).fetchone():
+        if not migrate_session_lifecycle(connection):
             return "not_found"
         session = connection.execute(
-            "SELECT status FROM practice_sessions WHERE id=?", (session_id,)
+            "SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()
         if session is None:
             return "not_found"

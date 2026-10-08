@@ -255,7 +255,8 @@ export class RealtimeCall {
     const attempt = this.attempt;
     if (attempt?.turn && !attempt.turn.committing) {
       attempt.turn.committing = true;
-      this.onTurnAudio(attempt.turn.id, attempt.recorder.stop(), Math.round(this.now() - attempt.clockStart));
+      const recording = attempt.recorder.stop();
+      if (!options.suppressSessionEnd) this.onTurnAudio(attempt.turn.id, recording, Math.round(this.now() - attempt.clockStart));
     }
     this.attempt = null; // Invalidate callbacks before close emits events.
     if (attempt) {
@@ -276,6 +277,6 @@ export class RealtimeCall {
     this.audio.pause();
     this.audio.srcObject = null;
     this.onStatus(state, message);
-    if (attempt?.sessionId) this.onStop(options);
+    if (attempt?.sessionId && !options.suppressSessionEnd) this.onStop(options);
   }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var store: PracticeStore
+    @ObservedObject var account: AccountSession
 
     private var visible: [PracticeRecord] {
         store.practices.filter { record in
@@ -17,7 +18,7 @@ struct HistoryView: View {
             }
             ForEach(visible, id: \.id) { record in
                 NavigationLink {
-                    PracticeDetailView(store: store, practiceID: record.id)
+                    PracticeDetailView(store: store, account: account, practiceID: record.id)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(record.goal).font(.headline)
@@ -26,6 +27,7 @@ struct HistoryView: View {
                         Text("\(record.durationMinutes) min · \(status(record))")
                             .foregroundStyle(record.status == "incomplete" ? .orange : .secondary)
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -46,6 +48,7 @@ struct HistoryView: View {
 
 struct PracticeDetailView: View {
     @ObservedObject var store: PracticeStore
+    @ObservedObject var account: AccountSession
     let practiceID: UUID
     @State private var showDelete = false
     @State private var retrying = false
@@ -79,6 +82,7 @@ struct PracticeDetailView: View {
                             Text(part.speaker).font(.caption).foregroundStyle(.secondary)
                             Text(part.text)
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
                 Section("Coaching") {
@@ -114,8 +118,9 @@ struct PracticeDetailView: View {
                             }
                         }
                         Button("Refresh report online") {
-                            Task { note = await CoachingClient().refresh(practiceID: practiceID, store: store) }
+                            Task { note = await CoachingClient(account: account).refresh(practiceID: practiceID, store: store) }
                         }
+                        .disabled(!account.canConnect)
                     } else {
                         Text("Feedback is not available yet.")
                     }
@@ -128,11 +133,11 @@ struct PracticeDetailView: View {
                             retrying = true
                             Task {
                                 store.reconcile()
-                                note = await CoachingClient().finish(practiceID: practiceID, store: store)
+                                note = await CoachingClient(account: account).finish(practiceID: practiceID, store: store)
                                 retrying = false
                             }
                         }
-                        .disabled(retrying)
+                        .disabled(retrying || !account.canConnect)
                     }
                 }
                 Section {

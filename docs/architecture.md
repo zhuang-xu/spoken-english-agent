@@ -26,6 +26,17 @@ sequenceDiagram
 metadata without credentials. `backend/app/schemas.py` defines request and response data.
 `backend/app/config.py` loads server settings.
 
+## Account isolation boundary
+
+FastAPI maps verified Entra identities to opaque accounts and checks session
+ownership inside storage transactions. The browser verifies `/me` before practice,
+scopes saved reports to the account, and rejects changed-account requests. The iOS
+client uses MSAL to verify `/me` and select its local history and queued work. See the [account isolation API contract](account-isolation-api-contract.md)
+and [implementation plan](account-isolation-plan.md). Hosted Azure identity-header
+trust and two-account conversations still require deployment verification.
+Database-backed account quotas apply to protected requests; edge throttling of
+invalid-token traffic remains a public deployment gate.
+
 A provider failure marks the application session failed. Activation failure withholds
 the credential; the token expires after 60 seconds. Database failure or a process
 crash can leave a creating row; the timer marks creating rows older than five minutes failed.
@@ -44,7 +55,8 @@ without changing stored session status. See the
 
 Learner recording and finalized transcript uploads are implemented. Agent transcript capture is also implemented.
 Evaluation and retention remain deferred. Their old schemas, ports, routes, and placeholder
-classes have been removed. Per-user authentication, rate limiting, and browser recording/upload integration remain future work.
+classes have been removed. Hosted authentication verification and edge limits
+remain release work.
 
 
 ## Learner input storage

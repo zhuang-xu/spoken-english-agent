@@ -37,6 +37,15 @@ final class WAVTurnRecorder: TurnRecording {
         ]
         let candidate = try AVAudioRecorder(url: url, settings: settings)
         guard candidate.record() else { throw RecordingFailure.couldNotStart }
+        do {
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: url.path)
+        } catch {
+            candidate.stop()
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
         recorder = candidate
         fileURL = url
     }

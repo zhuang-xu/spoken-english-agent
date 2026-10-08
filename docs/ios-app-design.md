@@ -188,14 +188,13 @@ speech processing catches up; follow the documented retry interval. See
 
 ## Authentication, privacy, and hosting
 
-The hosted browser currently depends on Azure platform Microsoft sign-in and a
-browser session cookie. A native iOS authentication path is **not yet implemented**
-by this repository. Before a hosted iOS release, define and verify an Entra-based
-native sign-in flow and a backend access policy that accepts the resulting token,
-or another server-mediated flow that preserves the existing protected API. Do not
-embed a Function key or reuse browser cookies as an undocumented native API.
-Application-level user ownership and rate limiting also remain backend work before
-multi-user public use.
+The hosted browser uses Azure platform Microsoft sign-in and a browser session
+cookie. The native app uses MSAL for the delegated Spoken Agents API scope, then
+verifies `/me` before selecting local history. The backend validates bearer
+tokens and enforces session ownership and per-account quotas. The hosted Entra
+registration and Azure identity-header boundary still need live verification.
+An edge limit for unauthenticated traffic remains a public-use gate. Do not embed
+a Function key or reuse browser cookies as native API credentials.
 
 Use HTTPS for hosted requests. Protect the local database, cached report, and
 pending audio files with iOS file protection; exclude their contents from ordinary

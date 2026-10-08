@@ -13,6 +13,7 @@ from app.schemas import AgentTranscript, AgentTranscriptReceipt
 from app.services.agent_transcripts import capture_agent_transcript
 
 from app.config import Settings, get_settings
+from app.auth import current_account
 from app.schemas import CreateSessionResponse, EndSessionResponse, SessionCreate, LearnerTranscript, LearnerInputReceipt
 from app.services.learner_inputs import AUDIO_TYPES, MAX_AUDIO_BYTES, capture_audio, capture_input
 from app.services.sessions import create_session, end_session, heartbeat_session
@@ -34,6 +35,12 @@ async def log_http_result(request: Request, call_next):
         request.method, route, response.status_code,
         round((time.monotonic() - started) * 1000), os.environ.get('WEBSITE_INSTANCE_ID', 'local'))
     return response
+
+
+@app.get("/me")
+def me(response: Response, account_id: str = Depends(current_account)) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store"
+    return {"account_id": account_id}
 
 
 @app.get("/health")
@@ -61,11 +68,12 @@ def require_json(request: Request) -> None:
 def start_session(
     request: SessionCreate, response: Response,
     settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
     idempotency_key: str | None = Header(default=None, min_length=1, max_length=200,
                                         pattern=r"^[A-Za-z0-9_-]+$"),
 ) -> CreateSessionResponse:
     """Save a session, request a connection credential, and return the active session."""
-    result = create_session(request, settings, idempotency_key)
+    result = create_session(request, settings, account_id, idempotency_key)
     if result.realtime is None:
         response.status_code = 200
     response.headers["Cache-Control"] = "no-store"
@@ -82,9 +90,10 @@ def start_session(
 )
 def finish_session(
     session_id: UUID, response: Response, settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
 ) -> EndSessionResponse:
     """End a session idempotently. Late uploads remain accepted; close WebRTC on the client."""
-    result = end_session(str(session_id), settings)
+    result = end_session(str(session_id), settings, account_id)
     response.headers["Cache-Control"] = "no-store"
     return result
 
@@ -99,9 +108,10 @@ def finish_session(
 )
 def record_heartbeat(
     session_id: UUID, response: Response, settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
 ) -> HeartbeatResponse:
     """Refresh activity for an active session; never reopen an ended session."""
-    result = heartbeat_session(str(session_id), settings)
+    result = heartbeat_session(str(session_id), settings, account_id)
     response.headers["Cache-Control"] = "no-store"
     return result
 
@@ -120,9 +130,10 @@ CAPTURE_RESPONSES = {
     responses={404: {"description": "Session not found"}, 503: {"description": "Storage unavailable"}},
 )
 def read_data_status(session_id: UUID, response: Response,
-                     settings: Settings = Depends(get_settings)) -> SessionDataStatus:
+                     settings: Settings = Depends(get_settings),
+                     account_id: str = Depends(current_account)) -> SessionDataStatus:
     """Report missing/unexpected components; this is a snapshot, not an evaluation lock."""
-    result = get_data_status(settings, str(session_id))
+    result = get_data_status(settings, str(session_id), account_id)
     response.headers["Cache-Control"] = "no-store"
     return result
 
@@ -138,9 +149,10 @@ def read_data_status(session_id: UUID, response: Response,
     },
 )
 def declare_upload_manifest(session_id: UUID, manifest: UploadManifest, response: Response,
-                            settings: Settings = Depends(get_settings)) -> SessionDataStatus:
+                            settings: Settings = Depends(get_settings),
+                     account_id: str = Depends(current_account)) -> SessionDataStatus:
     """Declare all expected uploads after ending; identical retries are accepted."""
-    result = get_data_status(settings, str(session_id), manifest)
+    result = get_data_status(settings, str(session_id), account_id, manifest)
     response.headers["Cache-Control"] = "no-store"
     return result
 
@@ -157,6 +169,7 @@ def declare_upload_manifest(session_id: UUID, manifest: UploadManifest, response
 async def upload_learner_audio(
     session_id: UUID, turn_id: UUID, request: Request, response: Response,
     settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
 ) -> LearnerInputReceipt:
     """Store one learner recording and immediately assess pronunciation and fluency."""
     media_type = request.headers.get("content-type", "").strip().lower()
@@ -170,7 +183,7 @@ async def upload_learner_audio(
     if not audio:
         raise HTTPException(422, "Audio must not be empty.")
     receipt, response.status_code = await run_in_threadpool(
-        capture_audio, settings, str(session_id), str(turn_id), bytes(audio), media_type
+        capture_audio, settings, str(session_id), str(turn_id), bytes(audio), media_type, account_id
     )
     response.headers["Cache-Control"] = "no-store"
     return receipt
@@ -184,12 +197,13 @@ async def upload_learner_audio(
 def upload_learner_transcript(
     session_id: UUID, turn_id: UUID, transcript: LearnerTranscript, response: Response,
     settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
 ) -> LearnerInputReceipt:
     """Store finalized learner text independently of the corresponding audio upload."""
     if transcript.end_ms <= transcript.start_ms:
         raise HTTPException(422, "end_ms must be greater than start_ms.")
     receipt, response.status_code = capture_input(
-        settings, str(session_id), str(turn_id), "transcript", transcript.model_dump_json()
+        settings, str(session_id), str(turn_id), "transcript", transcript.model_dump_json(), account_id
     )
     response.headers["Cache-Control"] = "no-store"
     return receipt
@@ -204,10 +218,11 @@ def upload_agent_transcript(
     session_id: UUID, transcript: AgentTranscript, response: Response,
     item_id: str = Path(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$"),
     content_index: int = Path(ge=0), settings: Settings = Depends(get_settings),
+    account_id: str = Depends(current_account),
 ) -> AgentTranscriptReceipt:
     """Store a finalized agent content part and any known playback context."""
     receipt, response.status_code = capture_agent_transcript(
-        settings, str(session_id), item_id, content_index, transcript
+        settings, str(session_id), item_id, content_index, transcript, account_id
     )
     response.headers["Cache-Control"] = "no-store"
     return receipt
@@ -230,8 +245,9 @@ EVALUATION_ERRORS = {
               202: {'description': 'Transcript complete; waiting for Speech turns'},
               **EVALUATION_ERRORS})
 def evaluate_session(session_id: UUID, response: Response,
-                     settings: Settings = Depends(get_settings)) -> EvaluationResponse:
-    result, response.status_code = run_evaluation(settings, str(session_id))
+                     settings: Settings = Depends(get_settings),
+                     account_id: str = Depends(current_account)) -> EvaluationResponse:
+    result, response.status_code = run_evaluation(settings, str(session_id), account_id)
     if response.status_code == 202:
         response.headers['Retry-After'] = '5'
     response.headers['Cache-Control'] = 'no-store'
@@ -241,7 +257,8 @@ def evaluate_session(session_id: UUID, response: Response,
 @app.get('/sessions/{session_id}/evaluation', response_model=EvaluationResponse,
          responses={404: EVALUATION_ERRORS[404], 503: EVALUATION_ERRORS[503]})
 def read_evaluation(session_id: UUID, response: Response,
-                    settings: Settings = Depends(get_settings)) -> EvaluationResponse:
-    result = get_evaluation(settings, str(session_id))
+                    settings: Settings = Depends(get_settings),
+                     account_id: str = Depends(current_account)) -> EvaluationResponse:
+    result = get_evaluation(settings, str(session_id), account_id)
     response.headers['Cache-Control'] = 'no-store'
     return result

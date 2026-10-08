@@ -278,7 +278,7 @@ def test_short_audio(learner_turn, learner_wav, mock_openai_post, evaluation_res
 def test_snapshot_rejects_changed_audio(ready_speech_evaluation, mock_speech_process):
     api, settings, url = ready_speech_evaluation
     sid = url.split('/')[2]
-    _, record, _ = evaluation_record(settings.database_path, sid, 'text')
+    _, record, _ = evaluation_record(settings.database_path, sid, '00000000-0000-4000-8000-000000000001', 'text')
     finish_evaluation(settings.database_path, record, error_code='test')
     with sqlite3.connect(settings.database_path) as db:
         db.execute('UPDATE learner_turns SET audio=? WHERE session_id=?', (b'changed', sid))
@@ -290,7 +290,7 @@ def test_snapshot_rejects_changed_audio(ready_speech_evaluation, mock_speech_pro
 def test_v1_retry_remains_transcript_only(ready_speech_evaluation, mock_speech_process):
     api, settings, url = ready_speech_evaluation
     sid = url.split('/')[2]
-    _, record, snapshot = evaluation_record(settings.database_path, sid, 'text')
+    _, record, snapshot = evaluation_record(settings.database_path, sid, '00000000-0000-4000-8000-000000000001', 'text')
     source = json.loads(snapshot)
     del source['audio_references']
     record = record.model_copy(update={'rubric_version': 'transcript-v1', 'status': 'failed'})

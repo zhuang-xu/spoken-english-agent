@@ -77,6 +77,8 @@ summary { cursor: pointer; font-weight: 600; }
 #controls p:empty { display: none; }
 #controls .actions { margin-top: 10px; gap: 8px; }
 .secondary { color: #285b4d; background: #fff; }
+.account-link { display: inline-flex; align-items: center; justify-content: center; padding: 11px 19px; border: 1px solid #285b4d; border-radius: 9px; text-decoration: none; font-weight: 650; }
+#account-status { color: #285b4d; }
 #speak[aria-pressed="true"] { background: #983e30; border-color: #983e30; }
 #feedback-section { scroll-margin-top: 20px; }
 body.practicing .site-header, body.practicing .hero { display: none; }

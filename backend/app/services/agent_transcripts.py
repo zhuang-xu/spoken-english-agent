@@ -9,7 +9,7 @@ from app.storage.sqlite import store_agent_transcript
 
 
 def capture_agent_transcript(settings: Settings, session_id: str, item_id: str,
-                             content_index: int, transcript: AgentTranscript
+                             content_index: int, transcript: AgentTranscript, account_id: str
                              ) -> tuple[AgentTranscriptReceipt, int]:
     if transcript.previous_item_id == item_id:
         raise HTTPException(422, "An item cannot be its own predecessor.")
@@ -20,7 +20,7 @@ def capture_agent_transcript(settings: Settings, session_id: str, item_id: str,
         raise HTTPException(422, "Provide paired, ordered playback offsets only for known playback.")
     try:
         outcome = store_agent_transcript(
-            settings.database_path, session_id, item_id, content_index, transcript.model_dump_json()
+            settings.database_path, session_id, item_id, content_index, transcript.model_dump_json(), account_id
         )
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Agent transcript storage is unavailable.") from None
