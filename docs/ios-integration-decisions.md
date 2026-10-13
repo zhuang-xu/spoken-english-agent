@@ -1,15 +1,18 @@
 # iOS integration decisions and device matrix
 
 **Recorded:** 2026-09-27. **Implementation status:** Phase 5 local build and tests
-passed on 2026-10-02; physical-device behavior and hosted authentication remain pending.
+passed on 2026-10-02. On 2026-10-12 the signed physical iPhone passed 121 unit
+tests, five fixture UI tests, hosted account verification, and live connection.
+Assisted spoken capture failed with zero frames; hosted speech feedback remains
+unverified. See [the device acceptance record](ios-acceptance-testing.md).
 
 ## Integration choices
 
 | Area | Decision and current evidence |
 |---|---|
-| Minimum OS and storage | iOS 17.0; use SwiftData for the Phase 3 local store. Xcode 27.0 built and tested the app on iOS 27.0 simulator. Migration behavior remains unverified. |
-| Native media | Swift Package Manager pins `stasel/WebRTC` 153.0.0 in `mobile/project-native.yml` and the checked-in project. Its package declares iOS 10 as its library minimum; the app minimum is iOS 17. The downloaded XCFramework is about 97 MiB on disk, with a 12 MiB iOS arm64 framework. The checked-out license is BSD 3-Clause with bundled WebRTC notices. Xcode 27.0 compiled and linked it; live peer compatibility is a device check. |
-| Learner audio | WebRTC owns the local audio track. `AVAudioRecorder` writes a separate 16 kHz, mono, 16-bit PCM WAV for each manual turn within the same `AVAudioSession`. The native test decodes a matching one-second WAV fixture. A recording is rejected if it exceeds the backend's 10 MiB per-turn limit; the app automatically ends a turn after five minutes. Concurrent capture and microphone isolation require the device matrix below. |
+| Minimum OS and storage | iOS 26.0; use SwiftData for the Phase 3 local store. Xcode 27.0 built and tested the app on iOS 27.0 simulator. Migration behavior remains unverified. |
+| Native media | WebRTC-SDK 150.7871.01 official binary, checksum-pinned by local `mobile/Packages/WebRTC/Package.swift`, product `WebRTC`. On October 12, direct upstream resolution failed because its tools-5.9 manifest uses `visionOS.v26`; the local wrapper declares tools 6.2. The app minimum remains iOS 26. The factory explicitly selects `.platformDefault`, with voice processing enabled and retained capture/render delegates. Physical-device audio verification remains pending after the upgrade. |
+| Learner audio | WebRTC owns native microphone capture and playback. `WebRTCAudioCapture.swift` observes processed microphone samples without modifying the input. A bounded reusable pool transfers FloatS16 samples to a serial WAV conversion/writing worker. The shared observer implements `TurnRecording`, connecting manual turns to the existing protected journal and audio feedback flow. No separate microphone recorder is opened. Physical-device callback delivery and live audio feedback remain unverified. |
 | Local journal | Pending audio is capped at 200 MiB per account and each turn at 10 MiB. It stays until a complete report is saved or the practice is locally deleted; accepted upload bytes are then removed while pending retries remain. The SwiftData store, audio directory, and temporary turn recording use file protection; persistent files are excluded from backup. Records are partitioned by verified account ID. |
 | Configuration | `API_BASE_URL` is nonsecret build configuration. The short-lived Realtime credential stays in memory. No Function key or provider secret belongs in the app. |
 

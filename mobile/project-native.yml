@@ -3,8 +3,7 @@ include:
   - project.yml
 packages:
   WebRTC:
-    url: https://github.com/stasel/WebRTC.git
-    exactVersion: 153.0.0
+    path: Packages/WebRTC
   MSAL:
     url: https://github.com/AzureAD/microsoft-authentication-library-for-objc.git
     exactVersion: 2.14.1

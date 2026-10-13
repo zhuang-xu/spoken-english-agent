@@ -1,0 +1,11 @@
+{
+  "callbacks" : 2486,
+  "energy" : 0,
+  "format" : 3,
+  "nonzero_samples" : 0,
+  "peak" : 0,
+  "rms" : 0,
+  "sample_rate" : 48000,
+  "samples" : 1193280,
+  "unsupported_buffers" : 0
+}

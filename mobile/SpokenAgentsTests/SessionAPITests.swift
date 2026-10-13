@@ -2,6 +2,92 @@ import XCTest
 @testable import SpokenAgents
 
 @MainActor final class SessionAPITests: XCTestCase {
+    private func preferences(goal: String = "Travel", level: String = "B1", topic: String? = nil, duration: Int = 10) -> SessionPreferences {
+        SessionPreferences(speakingGoal: goal, level: level, preferredTopic: topic, sessionDurationMinutes: duration)
+    }
+
+    func testPreferencesTrimGoalAndTopic() {
+        let value = preferences(goal: " \nTravel ", topic: " Airport\n ").normalized
+        XCTAssertEqual(value.speakingGoal, "Travel")
+        XCTAssertEqual(value.preferredTopic, "Airport")
+        XCTAssertNil(value.validationMessage)
+    }
+
+    func testBlankTopicNormalizesToNil() {
+        let value = preferences(topic: " \n ").normalized
+        XCTAssertNil(value.preferredTopic)
+        XCTAssertNil(value.validationMessage)
+    }
+
+    func testGoalLengthBoundaries() {
+        for count in [0, 1, 501] {
+            XCTAssertNotNil(preferences(goal: String(repeating: "a", count: count)).validationMessage)
+        }
+        for count in [2, 500] {
+            XCTAssertNil(preferences(goal: String(repeating: "a", count: count)).validationMessage)
+        }
+        XCTAssertNotNil(preferences(goal: " \n ").normalized.validationMessage)
+    }
+
+    func testTopicLengthBoundaries() {
+        for count in [1, 201] {
+            XCTAssertNotNil(preferences(topic: String(repeating: "a", count: count)).validationMessage)
+        }
+        for count in [2, 200] {
+            XCTAssertNil(preferences(topic: String(repeating: "a", count: count)).validationMessage)
+        }
+    }
+
+    func testDurationBoundaries() {
+        for duration in [1, 120] { XCTAssertNil(preferences(duration: duration).validationMessage) }
+        for duration in [0, 121] { XCTAssertNotNil(preferences(duration: duration).validationMessage) }
+    }
+
+    func testOnlySupportedCEFRLevelsAreAccepted() {
+        for level in ["A1", "A2", "B1", "B2", "C1", "C2"] {
+            XCTAssertNil(preferences(level: level).validationMessage)
+        }
+        for level in ["", "b1", "C3"] { XCTAssertNotNil(preferences(level: level).validationMessage) }
+    }
+
+    private func stubbedClient() -> HTTPBackendClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        return HTTPBackendClient(baseURL: URL(string: "https://example.com")!, session: URLSession(configuration: configuration))
+    }
+
+    func testMalformedSessionResponsesNeverSucceed() async {
+        defer { StubURLProtocol.handler = nil }
+        for payload in ["not json", "{}", "{\"session\":{\"id\":\"invalid\",\"status\":\"active\"}}"] {
+            StubURLProtocol.handler = { _ in (201, Data(payload.utf8)) }
+            do {
+                _ = try await stubbedClient().createSession(preferences(), key: UUID())
+                XCTFail("Malformed response succeeded: \(payload)")
+            } catch { XCTAssertTrue(error is DecodingError) }
+        }
+    }
+
+    func testSessionHTTPFailuresPreserveStatus() async {
+        defer { StubURLProtocol.handler = nil }
+        for status in [401, 403, 429, 500, 503] {
+            StubURLProtocol.handler = { _ in (status, Data()) }
+            do {
+                _ = try await stubbedClient().createSession(preferences(), key: UUID())
+                XCTFail("Expected HTTP failure")
+            } catch { XCTAssertEqual(error as? BackendFailure, .status(status)) }
+        }
+    }
+
+    func testSessionTimeoutPropagates() async {
+        StubURLProtocol.handler = { _ in throw URLError(.timedOut) }
+        defer { StubURLProtocol.handler = nil }
+        do {
+            _ = try await stubbedClient().createSession(preferences(), key: UUID())
+            XCTFail("Expected timeout")
+        } catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+    }
+
+
     func testCreateSessionSendsKeyAndDecodesCredential() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]

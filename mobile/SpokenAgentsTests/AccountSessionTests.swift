@@ -1,4 +1,5 @@
 import Foundation
+import MSAL
 import XCTest
 @testable import SpokenAgents
 
@@ -13,6 +14,126 @@ import XCTest
         config.protocolClasses = [AccountStub.self]
         let binding = TestBinding()
         return (store, URLSession(configuration: config), binding)
+    }
+
+    private let completedReport = Data("""
+    {"status":"completed","result":{"summary":"Saved feedback","grammar":{"score":4,"feedback":"Clear"},
+    "vocabulary":{"score":4,"feedback":"Varied"},"coherence":{"score":4,"feedback":"Connected"},
+    "strengths":["Clear"],"next_steps":["Practice"],"corrections":[]},"not_assessed":[]}
+    """.utf8)
+
+    func testRelaunchKeepsSavedLoginAfterTemporaryRefreshFailureAndRetries() async throws {
+        let (store, network, binding) = try setup()
+        defer { binding.delete(); AccountStub.handler = nil }
+        let auth = FakeNativeAuthentication()
+        AccountStub.handler = { _ in (200, Data("{\"account_id\":\"\(self.alice)\"}".utf8)) }
+        let first = AccountSession(store: store, authentication: auth,
+                                  baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await first.signIn()
+        auth.silentError = NSError(domain: MSALErrorDomain, code: MSALError.internal.rawValue)
+        let reopened = AccountSession(store: store, authentication: auth,
+                                     baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await reopened.restore()
+        XCTAssertEqual(reopened.state, .offline)
+        XCTAssertEqual(reopened.accountID, alice)
+        XCTAssertNotNil(binding.load())
+        auth.silentError = nil
+        await reopened.restore()
+        XCTAssertEqual(reopened.state, .ready)
+        XCTAssertEqual(auth.interactiveCalls, 1)
+    }
+
+    func testRelaunchWithUnavailableServerCanRetryWithoutSigningIn() async throws {
+        let (store, network, binding) = try setup()
+        defer { binding.delete(); AccountStub.handler = nil }
+        let auth = FakeNativeAuthentication()
+        AccountStub.handler = { _ in (200, Data("{\"account_id\":\"\(self.alice)\"}".utf8)) }
+        let account = AccountSession(store: store, authentication: auth,
+                                    baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await account.signIn()
+        AccountStub.handler = { _ in (503, Data()) }
+        await account.restore()
+        XCTAssertEqual(account.state, .offline)
+        XCTAssertEqual(account.accountID, alice)
+        AccountStub.handler = { _ in (200, Data("{\"account_id\":\"\(self.alice)\"}".utf8)) }
+        await account.restore()
+        XCTAssertEqual(account.state, .ready)
+        XCTAssertEqual(auth.interactiveCalls, 1)
+    }
+
+    func testRelaunchStillRequiresSignInWhenMicrosoftRequiresInteraction() async throws {
+        let (store, network, binding) = try setup()
+        defer { binding.delete(); AccountStub.handler = nil }
+        let auth = FakeNativeAuthentication()
+        AccountStub.handler = { _ in (200, Data("{\"account_id\":\"\(self.alice)\"}".utf8)) }
+        let account = AccountSession(store: store, authentication: auth,
+                                    baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await account.signIn()
+        auth.silentError = NSError(domain: MSALErrorDomain, code: MSALError.interactionRequired.rawValue)
+        await account.restore()
+        XCTAssertEqual(account.state, .needsSignIn)
+        XCTAssertFalse(account.canConnect)
+    }
+
+    func testSignOutDuringCoachingPollDoesNotSaveOldReport() async throws {
+        let (store, network, binding) = try setup()
+        defer { binding.delete(); AccountStub.handler = nil }
+        let auth = FakeNativeAuthentication()
+        var evaluations = 0
+        AccountStub.handler = { request in
+            if request.url?.path == "/me" { return (200, Data("{\"account_id\":\"\(self.alice)\"}".utf8)) }
+            evaluations += 1
+            return (202, Data("{\"status\":\"running\",\"result\":null,\"not_assessed\":[]}".utf8))
+        }
+        let account = AccountSession(store: store, authentication: auth, baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await account.signIn()
+        let id = UUID()
+        try store.create(id: id, sessionID: UUID(), key: UUID(), preferences: SessionPreferences(speakingGoal: "Polling race", level: "B1", preferredTopic: nil, sessionDurationMinutes: 10))
+        let coaching = CoachingClient(baseURL: URL(string: "https://example.com")!, session: network, account: account, maximumPolls: 1, sleep: { _ in account.signOut() })
+        let note = await coaching.evaluate(practiceID: id, store: store, explicitRetry: false)
+        XCTAssertTrue(note.contains("Account changed"))
+        XCTAssertEqual(evaluations, 1)
+        await account.signIn()
+        XCTAssertNil(store.practices.first { $0.id == id }?.reportData)
+    }
+
+    func testAccountSwitchDuringRefreshPreservesPreviousAccountsReport() async throws {
+        let (store, network, binding) = try setup()
+        defer { binding.delete(); AccountStub.handler = nil }
+        let auth = FakeNativeAuthentication()
+        let started = expectation(description: "refresh started")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        AccountStub.handler = { request in
+            if request.url?.path == "/me" {
+                let owner = request.value(forHTTPHeaderField: "Authorization") == "Bearer bob-token" ? self.bob : self.alice
+                return (200, Data("{\"account_id\":\"\(owner)\"}".utf8))
+            }
+            started.fulfill()
+            _ = release.wait(timeout: .now() + 5)
+            return (200, self.completedReport)
+        }
+        let account = AccountSession(store: store, authentication: auth, baseURL: URL(string: "https://example.com")!, session: network, binding: binding)
+        await account.signIn()
+        let id = UUID()
+        try store.create(id: id, sessionID: UUID(), key: UUID(), preferences: SessionPreferences(speakingGoal: "Refresh race", level: "B1", preferredTopic: nil, sessionDurationMinutes: 10))
+        let original = Data(String(decoding: completedReport, as: UTF8.self).replacingOccurrences(of: "Saved feedback", with: "Original feedback").utf8)
+        try store.saveReport(original, practiceID: id)
+        let coaching = CoachingClient(baseURL: URL(string: "https://example.com")!, session: network, account: account)
+        let refresh = Task { await coaching.refresh(practiceID: id, store: store) }
+        await fulfillment(of: [started], timeout: 2)
+        account.signOut()
+        auth.interactive = NativeIdentity(accountKey: "bob-key", token: "bob-token")
+        // Release the old request before verifying Bob; URLProtocol may serialize callbacks.
+        release.signal()
+        _ = await refresh.value
+        await account.signIn()
+        XCTAssertEqual(account.accountID, bob)
+        XCTAssertTrue(store.practices.isEmpty)
+        account.signOut()
+        auth.interactive = NativeIdentity(accountKey: "alice-key", token: "alice-token")
+        await account.signIn()
+        XCTAssertEqual(store.practices.first { $0.id == id }?.reportData, original)
     }
 
     func testRejectedAPITokenIdentifiesVerificationFailureWithoutSelectingAccount() async throws {
@@ -180,6 +301,7 @@ import XCTest
 }
 
 @MainActor private final class FakeNativeAuthentication: NativeAuthentication {
+    var interactiveCalls = 0
     var interactive = NativeIdentity(accountKey: "alice-key", token: "alice-token")
     var silentError: Error?
     var pauseSilent = false
@@ -189,6 +311,7 @@ import XCTest
 
     func cachedAccountKeys() throws -> [String] { Array(cached) }
     func acquireInteractively() async throws -> NativeIdentity {
+        interactiveCalls += 1
         cached.insert(interactive.accountKey)
         return interactive
     }

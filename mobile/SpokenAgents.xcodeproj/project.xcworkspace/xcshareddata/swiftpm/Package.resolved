@@ -1,23 +1,15 @@
 {
-  "pins": [
+  "originHash" : "7181ed9a28354dd6ca987a9484d60dc4e8228a68eb194db3d8e3d29cbcfb362b",
+  "pins" : [
     {
-      "identity": "webrtc",
-      "kind": "remoteSourceControl",
-      "location": "https://github.com/stasel/WebRTC.git",
-      "state": {
-        "revision": "4266157cd08f92115de885ab12d87196a8db87e1",
-        "version": "153.0.0"
-      }
-    },
-    {
-      "identity": "microsoft-authentication-library-for-objc",
-      "kind": "remoteSourceControl",
-      "location": "https://github.com/AzureAD/microsoft-authentication-library-for-objc.git",
-      "state": {
-        "revision": "6ec4d48696fc254f96e1be59f503251effa8b4a7",
-        "version": "2.14.1"
+      "identity" : "microsoft-authentication-library-for-objc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/AzureAD/microsoft-authentication-library-for-objc.git",
+      "state" : {
+        "revision" : "6ec4d48696fc254f96e1be59f503251effa8b4a7",
+        "version" : "2.14.1"
       }
     }
   ],
-  "version": 3
+  "version" : 3
 }

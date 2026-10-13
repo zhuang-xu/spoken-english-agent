@@ -1,0 +1,33 @@
+name: WebRTCMicCheck
+options:
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  WebRTC:
+    path: ../Packages/WebRTC
+settings:
+  base:
+    SWIFT_VERSION: '5.9'
+    DEVELOPMENT_TEAM: F72GFU3YCH
+targets:
+  WebRTCMicCheck:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: WebRTC
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhuangxu.webrtcmiccheck
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: WebRTC Mic Check
+        NSMicrophoneUsageDescription: Verify microphone capture with local WebRTC peers. Audio is not uploaded.
+        UILaunchScreen: {}
+schemes:
+  WebRTCMicCheck:
+    build:
+      targets:
+        WebRTCMicCheck: all

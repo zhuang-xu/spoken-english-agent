@@ -33,3 +33,16 @@ def test_supported_outcome_changes_conversation(settings, mock_openai_post):
     instructions = mock_openai_post.call_args.kwargs["json"]["session"]["instructions"]
     assert "explain a process or idea" in instructions
     assert "give a concrete example" in instructions
+
+
+@pytest.mark.parametrize("goal", ["Interview practice", "Explain ideas clearly", "Speak with confidence"])
+def test_live_conversation_reserves_language_corrections_for_feedback(settings, mock_openai_post, goal):
+    preferences = SessionCreate(
+        speaking_goal=goal, level="B1", preferred_topic=None, session_duration_minutes=10,
+    )
+    create_realtime_session(preferences, settings)
+    instructions = mock_openai_post.call_args.kwargs["json"]["session"]["instructions"]
+    assert "not to tutor or evaluate the learner" in instructions
+    assert "Do not correct grammar, vocabulary, pronunciation, or phrasing" in instructions
+    assert "separate feedback report after the conversation" in instructions
+    assert "ask a brief clarification question without teaching" in instructions

@@ -468,3 +468,20 @@ def test_rest_protocol_and_flat_scores(settings, learner_wav, speech_payload, mo
     assert header['ReferenceText'] == ''
     assert header['Granularity'] == 'Phoneme'
     assert request['content'][:4] == b'RIFF'
+
+
+def test_ios_header_only_wav_is_rejected_without_speech_samples():
+    """Regression for the actual 4096-byte recordings seen on October 10."""
+    import struct
+    chunks = (
+        b'JUNK' + struct.pack('<I', 28) + bytes(28)
+        + b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 16000, 32000, 2, 16)
+        + b'FLLR' + struct.pack('<I', 4008) + bytes(4008)
+        + b'data' + struct.pack('<I', 0)
+    )
+    audio = b'RIFF' + struct.pack('<I', 4 + len(chunks)) + b'WAVE' + chunks
+    assert len(audio) == 4096
+    with pytest.raises(HTTPException) as caught:
+        decode_audio(audio, 'audio/wav', time.monotonic() + 10)
+    assert caught.value.status_code == 422
+    assert caught.value.detail == 'Learner recording contains no audio samples.'

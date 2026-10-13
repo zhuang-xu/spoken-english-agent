@@ -32,6 +32,160 @@ import XCTest
                               maximumPolls: 1, sleep: { _ in })
     }
 
+    override func setUp() {
+        super.setUp()
+        CoachingStub.requests = []
+        CoachingStub.evaluations = []
+        CoachingStub.ready = true
+        CoachingStub.uploadStatus = 200
+        CoachingStub.retryAfter = "1"
+    }
+
+    func testRejectedAudioStopsRetriesAndCannotRequestFeedback() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let turn = UUID()
+        let audio = root.appending(path: "source.wav")
+        try Data(repeating: 0, count: 100).write(to: audio)
+        try store.queueAudio(turnID: turn, practiceID: id, source: audio)
+        CoachingStub.uploadStatus = 422
+        let coaching = client()
+        let note = await coaching.finish(practiceID: id, store: store)
+        XCTAssertTrue(note.contains("Start a new practice"))
+        XCTAssertEqual(store.journal.first { $0.kind == "audio" }?.receipt, "rejected")
+        XCTAssertFalse(CoachingStub.requests.contains { $0.path.hasSuffix("evaluation") })
+        let attemptedAudio = CoachingStub.requests.filter { $0.path.hasSuffix("audio") }.count
+        _ = await coaching.finish(practiceID: id, store: store)
+        XCTAssertEqual(CoachingStub.requests.filter { $0.path.hasSuffix("audio") }.count, attemptedAudio)
+        let reopened = try PracticeStore(directory: root)
+        XCTAssertEqual(reopened.journal.first { $0.kind == "audio" }?.receipt, "rejected")
+    }
+
+    func testTemporaryAudioFailureRemainsRetryable() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audio = root.appending(path: "source.wav")
+        try Data(repeating: 0, count: 100).write(to: audio)
+        try store.queueAudio(turnID: UUID(), practiceID: id, source: audio)
+        CoachingStub.uploadStatus = 503
+        let coaching = client()
+        _ = await coaching.uploader.retry(practiceID: id, store: store)
+        XCTAssertEqual(store.journal.first { $0.kind == "audio" }?.receipt, "pending")
+        CoachingStub.uploadStatus = 201
+        _ = await coaching.uploader.retry(practiceID: id, store: store)
+        XCTAssertEqual(store.journal.first { $0.kind == "audio" }?.receipt, "accepted")
+    }
+
+    func testUnacknowledgedUploadsBlockFeedbackEvenWhenManifestWouldBeReady() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        CoachingStub.uploadStatus = 503
+        CoachingStub.ready = true
+        let note = await client().finish(practiceID: id, store: store)
+        XCTAssertTrue(note.contains("pending"))
+        XCTAssertFalse(CoachingStub.requests.contains { $0.path.hasSuffix("evaluation") })
+        CoachingStub.uploadStatus = 201
+        CoachingStub.evaluations = [(201, completed)]
+        _ = await client().finish(practiceID: id, store: store)
+        XCTAssertTrue(store.journal.allSatisfy { $0.receipt == "accepted" })
+        let reopened = try PracticeStore(directory: root)
+        XCTAssertEqual(reopened.practices.first?.reportData, completed)
+    }
+
+    func testPollingStopsAtConfiguredLimitAndKeepsProcessingState() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let running = Data("{\"status\":\"running\",\"result\":null,\"not_assessed\":[]}".utf8)
+        CoachingStub.evaluations = [(202, running), (202, running), (201, completed)]
+        let note = await client().evaluate(practiceID: id, store: store, explicitRetry: false)
+        XCTAssertTrue(note.contains("processing"))
+        XCTAssertEqual(store.practices.first?.status, "evaluating")
+        XCTAssertNil(store.practices.first?.reportData)
+        XCTAssertEqual(CoachingStub.requests.map(\.method), ["GET", "GET"])
+        XCTAssertEqual(CoachingStub.evaluations.count, 1)
+    }
+
+    func testRetryAfterBoundsAndDefaultsWithoutRealSleeping() async throws {
+        for (header, seconds) in [("0", 1), ("-5", 1), ("120", 60), ("invalid", 5), (nil, 5)] as [(String?, UInt64)] {
+            let (store, id, root) = try setup()
+            defer { try? FileManager.default.removeItem(at: root) }
+            CoachingStub.retryAfter = header
+            CoachingStub.evaluations = [(202, Data("{\"status\":\"waiting\",\"result\":null,\"not_assessed\":[]}".utf8)), (200, completed)]
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [CoachingStub.self]
+            var delays: [UInt64] = []
+            let client = CoachingClient(baseURL: URL(string: "https://example.com")!, session: URLSession(configuration: config), maximumPolls: 1, sleep: { delays.append($0) })
+            _ = await client.evaluate(practiceID: id, store: store, explicitRetry: false)
+            XCTAssertEqual(delays, [seconds * 1_000_000_000], "Header: \(header ?? "missing")")
+            XCTAssertEqual(store.practices.first?.reportData, completed)
+        }
+    }
+
+    func testFailedEvaluationCanBeRetriedSuccessfully() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        CoachingStub.evaluations = [(500, Data())]
+        _ = await client().evaluate(practiceID: id, store: store, explicitRetry: true)
+        XCTAssertEqual(store.practices.first?.status, "evaluationFailed")
+        XCTAssertNil(store.practices.first?.reportData)
+        CoachingStub.evaluations = [(201, completed)]
+        _ = await client().evaluate(practiceID: id, store: store, explicitRetry: true)
+        XCTAssertEqual(store.practices.first?.status, "feedbackReady")
+        XCTAssertEqual(store.practices.first?.reportData, completed)
+    }
+
+    private func changedReport(_ change: (inout [String: Any]) -> Void) throws -> Data {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: completed) as? [String: Any])
+        var result = try XCTUnwrap(json["result"] as? [String: Any])
+        change(&result)
+        json["result"] = result
+        return try JSONSerialization.data(withJSONObject: json)
+    }
+
+    func testCompletedReportRejectsBlankSummary() throws {
+        let data = try changedReport { $0["summary"] = " \n " }
+        XCTAssertFalse(try JSONDecoder().decode(CoachingResponse.self, from: data).validCompleted)
+    }
+
+    func testCompletedReportRequiresStrengthsAndNextSteps() throws {
+        for key in ["strengths", "next_steps"] {
+            let data = try changedReport { $0[key] = [String]() }
+            XCTAssertFalse(try JSONDecoder().decode(CoachingResponse.self, from: data).validCompleted)
+        }
+    }
+
+    func testCompletedReportRejectsInvalidScoresAndBlankCategoryFeedback() throws {
+        for category in ["grammar", "vocabulary", "coherence"] {
+            for score in [0, 6] {
+                let data = try changedReport { $0[category] = ["score": score, "feedback": "Clear"] }
+                XCTAssertFalse(try JSONDecoder().decode(CoachingResponse.self, from: data).validCompleted)
+            }
+            let data = try changedReport { $0[category] = ["score": 4, "feedback": " \n "] }
+            XCTAssertFalse(try JSONDecoder().decode(CoachingResponse.self, from: data).validCompleted)
+        }
+    }
+
+    func testCompletedReportRejectsIncompleteCorrections() throws {
+        for field in ["original", "improved", "explanation"] {
+            let data = try changedReport {
+                var correction = ["turn_id": "turn-1", "original": "I go", "improved": "I went", "explanation": "Past tense"]
+                correction[field] = ""
+                $0["corrections"] = [correction]
+            }
+            XCTAssertFalse(try JSONDecoder().decode(CoachingResponse.self, from: data).validCompleted)
+        }
+    }
+
+    func testInvalidCompletedRefreshPreservesCachedReport() async throws {
+        let (store, id, root) = try setup()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try store.saveReport(completed, practiceID: id)
+        CoachingStub.evaluations = [(200, try changedReport { $0["summary"] = "" })]
+        _ = await client().refresh(practiceID: id, store: store)
+        XCTAssertEqual(store.practices.first?.reportData, completed)
+        XCTAssertEqual(store.practices.first?.status, "feedbackReady")
+    }
+
     func testManifestIsImmutableIncludingMissingIntendedComponents() throws {
         let (store, id, root) = try setup()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -107,6 +261,7 @@ private final class CoachingStub: URLProtocol {
     static var evaluations: [(Int, Data)] = []
     static var ready = true
     static var uploadStatus = 200
+    static var retryAfter: String? = "1"
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -126,7 +281,7 @@ private final class CoachingStub: URLProtocol {
             status = next.0; body = next.1
         } else { status = Self.uploadStatus; body = Data() }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
-                                       headerFields: ["Retry-After": "1"])!
+                                       headerFields: Self.retryAfter.map { ["Retry-After": $0] })!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)

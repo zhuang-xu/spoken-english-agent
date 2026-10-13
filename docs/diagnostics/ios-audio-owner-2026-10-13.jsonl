@@ -1,0 +1,8 @@
+{"event": "app.launch", "fields": {"build": "1", "os": "27.0.1", "version": "1.0"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.423Z"}
+{"event": "rtc.factory_created", "fields": {"factory": "47A53A4E-F96A-4624-9AFD-D0172F7975CD"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.586Z"}
+{"event": "auth.restore", "fields": {}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.601Z"}
+{"event": "auth.state", "fields": {"state": "checking"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.602Z"}
+{"event": "auth.state", "fields": {"state": "offline"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.620Z"}
+{"event": "call.phase", "fields": {"attempt": "0E2F5B1D-AB46-42D8-827F-2F726D94BA57", "phase": "idle"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.626Z"}
+{"event": "http.start", "fields": {"host": "spoken-agent-func-4fa2534c.azurewebsites.net", "method": "GET", "request": "F3F7E2DE-05F7-4613-BBE6-1AB06318DC42", "route": "/me"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.707Z"}
+{"event": "app.scene", "fields": {"phase": "active"}, "launch": "E8AF2888-6560-484E-B2AE-E0D53252AB28", "time": "2026-10-13T01:50:25.721Z"}
