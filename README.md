@@ -7,7 +7,7 @@ transcript feedback plus pronunciation and fluency assessment.
 ## Run
 
 ```bash
-python3.11 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 cp backend/.env.example .env
@@ -131,8 +131,12 @@ The new `practice_sessions` table does not modify older tables in an existing da
 
 ## Tests
 
+Use Python 3.14 and install the pinned backend dependencies before running tests:
+
 ```bash
-python -m pytest -q
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/python -m pytest -q
 node --test browser/tests/*.test.mjs
 ```
 

@@ -10,3 +10,5 @@ local.settings.json
 .env
 **/*.xcodeproj/xcuserdata/
 **/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+**/.swiftpm/
