@@ -52,6 +52,7 @@
 		EC724F1C3578D413E763964D /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B1C3885A4B38115F958382 /* Audio.swift */; };
 		F59B00DA2AA3D1F720C7373C /* UploadLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF899EFC3607C3C2344208 /* UploadLifecycleTests.swift */; };
 		F610621C58952610C286BFB8 /* PracticeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C50B535056520730590C27 /* PracticeDetailView.swift */; };
+		F7C540B0C974A86A7960A6FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B4ED24954AF2C42561468B59 /* Assets.xcassets */; };
 		F9D3E25859341CA34C9BC6E8 /* SessionAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533900975062050574D7FCFF /* SessionAPI.swift */; };
 /* End PBXBuildFile section */
 
@@ -108,6 +109,7 @@
 		AA339F07343E3FB596563DAD /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		AD81494547FEB1E86D622875 /* PracticeSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeSetupView.swift; sourceTree = "<group>"; };
 		AF096A1B16E855A531FC2D33 /* CoachingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachingClient.swift; sourceTree = "<group>"; };
+		B4ED24954AF2C42561468B59 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B6E643955096933F06768222 /* UploadJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadJournal.swift; sourceTree = "<group>"; };
 		C4ED3C4CDA022C22576E3276 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C66735AFB93E03BC794B6281 /* CoachingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachingTests.swift; sourceTree = "<group>"; };
@@ -264,6 +266,7 @@
 		9A7E20A3E59D3D85EB9CFBB8 /* SpokenAgents */ = {
 			isa = PBXGroup;
 			children = (
+				B4ED24954AF2C42561468B59 /* Assets.xcassets */,
 				7EF4ACB34E9747363319DA51 /* Info.plist */,
 				63EAC3F5F5622B6A2563812A /* SpokenAgents.entitlements */,
 				04E725506B60237DBA731366 /* App */,
@@ -430,6 +433,7 @@
 			buildConfigurationList = B59F11EA9264E7967FAAB13C /* Build configuration list for PBXNativeTarget "SpokenAgents" */;
 			buildPhases = (
 				E1A637654B9645EB7CE19170 /* Sources */,
+				9C04B04A20D3D13BC1B13495 /* Resources */,
 				C2BD49F6DFE8F3C7893330B3 /* Frameworks */,
 			);
 			buildRules = (
@@ -491,6 +495,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9C04B04A20D3D13BC1B13495 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7C540B0C974A86A7960A6FC /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		085F86CC7ED9F10C74872F1C /* Sources */ = {

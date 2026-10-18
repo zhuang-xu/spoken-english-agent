@@ -37,28 +37,20 @@ speech results, and calls the Evaluation Agent. Reports are stored for later rev
 ## Backend architecture
 
 ```mermaid
-flowchart LR
-    Client["clients"]
+flowchart TD
+    Clients["clients"]
     Voice["Voice Agent<br/>Azure OpenAI Realtime"]
+    Backend["FastAPI backend<br/>Sessions, uploads and evaluation"]
+    Store[("Conversation data<br/>and reports")]
+    Speech["Azure Speech<br/>Pronunciation and fluency"]
     Evaluation["Evaluation Agent<br/>Azure OpenAI text deployment"]
-    Speech["Azure Speech"]
 
-    subgraph Backend["Backend — FastAPI / Azure Functions"]
-        API["Account, session and upload API"]
-        Feedback["Evaluation orchestration<br/>Completeness check and report assembly"]
-        Store[("SQLite<br/>Local or Azure Blob snapshots")]
-        API <-->|"Save and read conversation"| Store
-        API -->|"Client requests evaluation"| Feedback
-        Store -->|"Conversation and cached speech results"| Feedback
-        Feedback -->|"Save final report"| Store
-    end
-
-    Client <-->|"Live WebRTC audio and events"| Voice
-    Client <-->|"Sessions, uploads and reports"| API
-    API -->|"Request temporary credential"| Voice
-    API <-->|"Assess uploaded recordings"| Speech
-    API -->|"Cache speech results"| Store
-    Feedback <-->|"Transcript coaching, then synthesis with speech results"| Evaluation
+    Clients <-->|"Live audio"| Voice
+    Clients <-->|"API requests"| Backend
+    Backend -->|"Connection credential"| Voice
+    Backend <--> Store
+    Backend <-->|"Audio assessment"| Speech
+    Backend <-->|"Coaching and synthesis"| Evaluation
 ```
 
 The **FastAPI backend** coordinates session creation, account verification, uploads,
