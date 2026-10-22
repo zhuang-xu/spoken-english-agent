@@ -1,6 +1,5 @@
 import AVFoundation
 import Foundation
-import Synchronization
 #if canImport(WebRTC)
 import WebRTC
 
@@ -8,19 +7,14 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
     var onEvent: ((RealtimeEvent) -> Void)?
 
     private let capture: WebRTCAudioCapture
-    private let outputDiagnostics = WebRTCOutputDiagnostics()
-    private var mediaDiagnosticsTimer: Timer?
     private let processing: RTCDefaultAudioProcessingModule
     private let factory: RTCPeerConnectionFactory
     private let audioDiagnostics = WebRTCAudioSessionDiagnostics()
     private let factoryID = UUID().uuidString
-    #if DEBUG
-    private var nativeLogger: RTCFileLogger?
-    #endif
 
     init(capture: WebRTCAudioCapture = WebRTCAudioCapture()) {
         self.capture = capture
-        processing = Self.makeAudioProcessingModule(capture: capture, render: outputDiagnostics)
+        processing = Self.makeAudioProcessingModule(capture: capture)
         factory = RTCPeerConnectionFactory(audioDeviceModuleType: .platformDefault,
             bypassVoiceProcessing: false,
             encoderFactory: nil, decoderFactory: nil, audioProcessingModule: processing)
@@ -29,8 +23,7 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
     }
 
     static func makeAudioProcessingModule(
-        capture: RTCAudioCustomProcessingDelegate,
-        render: RTCAudioCustomProcessingDelegate
+        capture: RTCAudioCustomProcessingDelegate
     ) -> RTCDefaultAudioProcessingModule {
         let module = RTCDefaultAudioProcessingModule(config: nil,
             capturePostProcessingDelegate: nil, renderPreProcessingDelegate: nil)
@@ -38,7 +31,6 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         // The setters call SetDelegate on the native adapters, attaching callbacks
         // (and replaying format initialization if processing has already started).
         module.capturePostProcessingDelegate = capture
-        module.renderPreProcessingDelegate = render
         return module
     }
 
@@ -56,22 +48,6 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
 
     func connect(url: URL, credential: String) async throws {
         close()
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["PHYSICAL_AUDIO_DIAGNOSTICS"] == "1" {
-            let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("NativeAudioDiagnostics", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            var protectedDirectory = directory
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            try protectedDirectory.setResourceValues(values)
-            let logger = RTCFileLogger(dirPath: directory.path, maxFileSize: 1_000_000)
-            logger.severity = .info
-            logger.shouldDisableBuffering = true
-            logger.start()
-            nativeLogger = logger
-        }
-        #endif
         let current = generation
         DiagnosticLog.shared.record("rtc.connect", fields: ["transport": current.uuidString])
         let audio = RTCAudioSession.sharedInstance()
@@ -236,9 +212,6 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         capture.cancel()
         guard audioSessionActive || peer != nil || channel != nil || opening != nil else { return }
         DiagnosticLog.shared.record("rtc.close", fields: ["transport": generation.uuidString])
-        mediaDiagnosticsTimer?.invalidate()
-        mediaDiagnosticsTimer = nil
-        outputDiagnostics.recordSnapshot()
         generation = UUID()
         failOpening(CancellationError())
         inputTrack?.isEnabled = false
@@ -255,10 +228,6 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
             defer { audio.unlockForConfiguration() }
             try? audio.setActive(false)
         }
-        #if DEBUG
-        nativeLogger?.stop()
-        nativeLogger = nil
-        #endif
     }
 
     private func setLocal(_ description: RTCSessionDescription, on peer: RTCPeerConnection) async throws {
@@ -283,71 +252,6 @@ final class NativeRealtimeTransport: NSObject, RealtimeTransporting {
         DiagnosticLog.shared.record("rtc.channel_open")
         opening?.resume()
         opening = nil
-        recordMediaDiagnostics()
-        let current = generation
-        mediaDiagnosticsTimer?.invalidate()
-        mediaDiagnosticsTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] timer in
-            // Scheduled from the main actor, so this timer fires on the main run loop.
-            MainActor.assumeIsolated {
-                guard let self, self.generation == current else { timer.invalidate(); return }
-                self.recordMediaDiagnostics()
-            }
-        }
-    }
-
-    private func recordMediaDiagnostics() {
-        guard let peer else { return }
-        outputDiagnostics.recordSnapshot()
-        capture.recordDiagnostics()
-        var receiverCount = 0
-        for receiver in peer.receivers {
-            guard let track = receiver.track, track.kind == "audio" else { continue }
-            receiverCount += 1
-            DiagnosticLog.shared.record("rtc.audio_receiver", fields: [
-                "transport": generation.uuidString, "enabled": String(track.isEnabled),
-                "state": String(track.readyState.rawValue)])
-        }
-        DiagnosticLog.shared.record("rtc.audio_receiver_count", fields: [
-            "transport": generation.uuidString, "count": String(receiverCount)])
-        let audio = RTCAudioSession.sharedInstance()
-        recordAudioRoute("audio.route_snapshot", fields: ["transport": generation.uuidString])
-        DiagnosticLog.shared.record("audio.media_state", fields: [
-            "factory": factoryID,
-            "playout_initialized": String(factory.audioDeviceModule.isPlayoutInitialized),
-            "recording_initialized": String(factory.audioDeviceModule.isRecordingInitialized),
-            "active": String(audio.isActive), "manual": String(audio.useManualAudio),
-            "enabled": String(audio.isAudioEnabled), "volume": String(audio.outputVolume),
-            "playing": String(factory.audioDeviceModule.playing),
-            "recording": String(factory.audioDeviceModule.recording),
-            "input": audio.currentRoute.inputs.map { $0.portType.rawValue }.joined(separator: ","),
-            "output": audio.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")])
-        let current = generation
-        peer.statistics { [weak self] report in
-            DispatchQueue.main.async {
-                guard let self, self.generation == current else { return }
-                var audioReports = 0
-                var inboundReports = 0
-                for stat in report.statistics.values where ["inbound-rtp", "outbound-rtp", "media-source", "media-playout"].contains(stat.type) {
-                    guard (stat.values["kind"] as? String ?? stat.values["mediaType"] as? String) == "audio" else { continue }
-                    audioReports += 1
-                    if stat.type == "inbound-rtp" { inboundReports += 1 }
-                    var fields = ["direction": stat.type, "stats_id": stat.id, "transport": current.uuidString]
-                    for key in ["packetsReceived", "bytesReceived", "packetsSent", "bytesSent",
-                                "packetsLost", "totalAudioEnergy", "totalSamplesReceived", "totalSamplesDuration",
-                                "audioLevel", "jitter", "jitterBufferDelay", "jitterBufferEmittedCount",
-                                "concealedSamples", "silentConcealedSamples", "concealmentEvents",
-                                "insertedSamplesForDeceleration", "removedSamplesForAcceleration",
-                                "totalPlayoutDelay", "totalSamplesCount", "synthesizedSamplesDuration",
-                                "synthesizedSamplesEvents"] {
-                        if let value = stat.values[key] as? NSNumber { fields[key] = value.stringValue }
-                    }
-                    DiagnosticLog.shared.record("rtc.audio_stats", fields: fields)
-                }
-                DiagnosticLog.shared.record("rtc.audio_stats_report", fields: [
-                    "transport": current.uuidString, "audio_reports": String(audioReports),
-                    "inbound_reports": String(inboundReports)])
-            }
-        }
     }
 
     private func failOpening(_ error: Error) {
@@ -454,82 +358,5 @@ final class NativeRealtimeTransport: RealtimeTransporting {
     func startInput() throws { throw RealtimeFailure.dependencyUnavailable }
     func setSpeakerEnabled(_ enabled: Bool) throws {}
     func close() {}
-}
-#endif
-
-#if canImport(WebRTC)
-/// Observes render PCM without retaining or modifying audio. Atomic counters keep
-/// logging and file I/O off WebRTC's audio thread. Values are lifetime cumulative.
-final class WebRTCOutputDiagnostics: NSObject, RTCAudioCustomProcessingDelegate {
-    private let stage: String
-    init(stage: String = "render_pre_processing") {
-        self.stage = stage
-        super.init()
-    }
-
-    private let callbacks = Atomic<Int>(0)
-    private let frames = Atomic<Int>(0)
-    private let samples = Atomic<Int>(0)
-    private let nonzeroSamples = Atomic<Int>(0)
-    private let energyMillionths = Atomic<Int>(0)
-    private let peakMillionths = Atomic<Int>(0)
-    private let rate = Atomic<Int>(0)
-    private let channels = Atomic<Int>(0)
-
-    func audioProcessingInitialize(sampleRate: Int, channels: Int) {
-        rate.store(sampleRate, ordering: .relaxed)
-        self.channels.store(channels, ordering: .relaxed)
-    }
-
-    func audioProcessingProcess(audioBuffer: RTCAudioBuffer) {
-        observe(frames: audioBuffer.frames, channels: audioBuffer.channels) {
-            UnsafePointer(audioBuffer.rawBuffer(forChannel: $0))
-        }
-    }
-
-    func observe(frames frameCount: Int, channels channelCount: Int,
-                 channelData: (Int) -> UnsafePointer<Float>) {
-        guard frameCount > 0, channelCount > 0 else { return }
-        var nonzero = 0
-        var energy = 0.0
-        var peak = 0.0
-        for channel in 0..<channelCount {
-            let buffer = channelData(channel)
-            for frame in 0..<frameCount {
-                // WebRTC exposes FloatS16, so normalize to full scale.
-                let value = Double(buffer[frame]) / 32768.0
-                guard value.isFinite else { continue }
-                if value != 0 { nonzero += 1 }
-                energy += value * value
-                peak = max(peak, abs(value))
-            }
-        }
-        callbacks.wrappingAdd(1, ordering: .relaxed)
-        frames.wrappingAdd(frameCount, ordering: .relaxed)
-        samples.wrappingAdd(frameCount * channelCount, ordering: .relaxed)
-        nonzeroSamples.wrappingAdd(nonzero, ordering: .relaxed)
-        energyMillionths.wrappingAdd(Int(min(energy * 1_000_000, Double(Int.max / 2))), ordering: .relaxed)
-        peakMillionths.store(Int(min(peak * 1_000_000, Double(Int.max / 2))), ordering: .relaxed)
-    }
-
-    func audioProcessingRelease() {}
-
-    func recordSnapshot() {
-        DiagnosticLog.shared.record(stage == "render_pre_processing" ? "audio.output_pcm_stats" : "audio.input_pcm_stats", fields: snapshotFields())
-    }
-
-    func snapshotFields() -> [String: String] {
-        let count = samples.load(ordering: .relaxed)
-        let energy = Double(energyMillionths.load(ordering: .relaxed)) / 1_000_000
-        return [
-            "scope": "factory_lifetime", "stage": stage,
-            "callbacks": String(callbacks.load(ordering: .relaxed)),
-            "frames": String(frames.load(ordering: .relaxed)), "samples": String(count),
-            "nonzero_samples": String(nonzeroSamples.load(ordering: .relaxed)),
-            "sample_rate": String(rate.load(ordering: .relaxed)),
-            "channels": String(channels.load(ordering: .relaxed)),
-            "rms": String(count > 0 ? sqrt(energy / Double(count)) : 0),
-            "latest_buffer_peak": String(Double(peakMillionths.load(ordering: .relaxed)) / 1_000_000)]
-    }
 }
 #endif

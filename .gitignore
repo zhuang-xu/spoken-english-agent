@@ -12,5 +12,3 @@ local.settings.json
 **/*.xcodeproj/project.xcworkspace/xcuserdata/
 
 **/.swiftpm/
-
-.harness-runs/

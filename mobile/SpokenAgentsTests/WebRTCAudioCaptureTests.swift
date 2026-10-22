@@ -7,18 +7,17 @@ import WebRTC
 
 @MainActor final class WebRTCAudioCaptureTests: XCTestCase {
     #if canImport(WebRTC)
-    func testNativeProcessingModuleAttachesCaptureAndRenderDelegates() {
+    func testNativeProcessingModuleAttachesCaptureDelegate() {
         let capture = WebRTCAudioCapture()
-        let render = WebRTCAudioCapture()
-        let module = NativeRealtimeTransport.makeAudioProcessingModule(capture: capture, render: render)
+        let module = NativeRealtimeTransport.makeAudioProcessingModule(capture: capture)
         XCTAssertTrue(module.capturePostProcessingDelegate === capture)
-        XCTAssertTrue(module.renderPreProcessingDelegate === render)
+        XCTAssertNil(module.renderPreProcessingDelegate)
         // These delegates are weak in WebRTC; their owners must keep them alive.
         let factory = RTCPeerConnectionFactory(audioDeviceModuleType: .platformDefault,
             bypassVoiceProcessing: false, encoderFactory: nil, decoderFactory: nil,
             audioProcessingModule: module)
         XCTAssertTrue(module.capturePostProcessingDelegate === capture)
-        XCTAssertTrue(module.renderPreProcessingDelegate === render)
+        XCTAssertNil(module.renderPreProcessingDelegate)
         withExtendedLifetime(factory) {}
     }
     #endif
@@ -429,31 +428,3 @@ import WebRTC
     }
 
 }
-
-#if canImport(WebRTC)
-final class WebRTCOutputDiagnosticsTests: XCTestCase {
-    func testOutputCountersDistinguishSilenceFromNormalizedStereoSignal() throws {
-        let observer = WebRTCOutputDiagnostics()
-        observer.audioProcessingInitialize(sampleRate: 48_000, channels: 2)
-        let silence: [Float] = [0, 0, 0, 0]
-        silence.withUnsafeBufferPointer { buffer in
-            observer.observe(frames: 4, channels: 2) { _ in buffer.baseAddress! }
-        }
-        XCTAssertEqual(observer.snapshotFields()["nonzero_samples"], "0")
-        XCTAssertEqual(observer.snapshotFields()["rms"], "0.0")
-        let signal: [Float] = [16384, -16384, 16384, -16384]
-        signal.withUnsafeBufferPointer { buffer in
-            observer.observe(frames: 4, channels: 2) { _ in buffer.baseAddress! }
-        }
-        let fields = observer.snapshotFields()
-        XCTAssertEqual(fields["callbacks"], "2")
-        XCTAssertEqual(fields["frames"], "8")
-        XCTAssertEqual(fields["samples"], "16")
-        XCTAssertEqual(fields["nonzero_samples"], "8")
-        XCTAssertEqual(fields["sample_rate"], "48000")
-        XCTAssertEqual(fields["channels"], "2")
-        XCTAssertEqual(try XCTUnwrap(Double(fields["rms"]!)), sqrt(0.125), accuracy: 0.000001)
-        XCTAssertEqual(fields["latest_buffer_peak"], "0.5")
-    }
-}
-#endif

@@ -277,6 +277,16 @@ export class SessionSync {
   async evaluate() {
     if (this.invalidated) throw new AccountError("changed");
     if (!this.ready) throw new Error("Save a complete session before requesting feedback.");
-    return this.request("/evaluation");
+    for (let step = 0; step < 256; step += 1) {
+      if (this.invalidated) throw new AccountError("changed");
+      const evaluation = await this.request("/evaluation");
+      if (evaluation.status !== "waiting" || step === 255) return evaluation;
+      const total = evaluation.transcript_windows_total ?? 0;
+      const completed = evaluation.transcript_windows_completed ?? 0;
+      this.onChange(total && evaluation.transcript_status !== "completed"
+        ? `Preparing feedback: ${completed} of ${total} transcript batches complete…`
+        : "Preparing the final feedback…");
+      await this.wait(5000);
+    }
   }
 }

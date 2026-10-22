@@ -1,5 +1,19 @@
 # iOS audio execution and lifecycle audit
 
+## Current acceptance status — confirmed October 21, 2026
+
+**Passed.** The user confirms that the physical-device acceptance run is complete
+with no issues. The iOS physical-device acceptance gate is closed. This status
+supersedes the earlier capture failures and pending-device statements below,
+which are retained as historical investigation records.
+
+Confirmation was received on October 21; the run date, build/deployment identifiers,
+and result bundle were not supplied with this update. No new device test was run
+for this documentation change. Hosted two-account isolation and public-rollout
+checks are separate from this iOS acceptance confirmation.
+
+## Historical audit and verification records
+
 Date: October 11, 2026. Status: code audit, simulator tests, Thread Sanitizer,
 and unsigned native device build completed. Physical-device capture and live Azure
 interoperability remain unverified. This audit covers app-controlled lifetimes;
@@ -227,41 +241,12 @@ errors and unregisters on deallocation; it stores no PCM or conversation content
 The assisted UI test uses XCTest teardown rather than Swift `defer` to close the
 session even when an assertion aborts the test.
 
-## Incoming and output audio diagnostics — October 12, 2026
+## Diagnostic cleanup — October 22, 2026
 
-While the data channel is open, the transport records media diagnostics immediately
-and every three seconds, and stops the timer on close. `rtc.audio_stats` includes
-available inbound/outbound RTP, audio source, and media playout statistics. Compare
-successive entries for the same transport and stats ID: increasing received bytes
-and packets confirm incoming audio traffic; energy, samples, jitter buffer, and
-concealment fields help distinguish decoded sound from loss or generated silence.
-SDK fields that are unavailable are omitted rather than reported as zero.
-
-`audio.output_pcm_stats` observes the retained render pre-processing delegate:
-callback count, frames, interleaved-equivalent sample count, nonzero samples,
-format, normalized cumulative RMS, and the latest buffer's normalized peak.
-Counters accumulate over the factory lifetime, including across reconnects;
-compare snapshots to identify activity during the current response. Atomic reads
-are approximate concurrent snapshots. The callback reads FloatS16 samples without
-changing or retaining them and performs no logging, allocation, or file I/O.
-Only numeric aggregates are persisted, never PCM or conversation content.
-
-Increasing output counters with nonzero signal establishes that decoded sound
-reached WebRTC's render processing stage. It does not measure the final audio unit
-buffer or prove physical speaker sound. Correlate it with `audio.media_state`
-(active/enabled/playing, route, and volume) and the device lifecycle events.
-
-The diagnostics also include `audio.input_pcm_stats` at capture post-processing,
-even when no learner recording is open. It uses the same numeric counters and
-FloatS16 normalization as output statistics. `rtc.audio_receiver` reports each
-remote audio track's enabled/liveness state; `rtc.audio_receiver_count` reports
-zero explicitly. `rtc.audio_stats_report` records audio and inbound report counts
-even if the SDK returns no audio entries. This separates unavailable statistics
-from a returned inbound report with zero received bytes.
-
-Debugging status: existing downloaded device logs predate these counters and
-only establish audio-device startup. The physical iPhone was unavailable to Xcode
-at the latest device inventory, so no fresh 150.7871.01 live audio evidence or
-root-cause claim is available yet. Final hardware output-buffer inspection is
-not exposed by the installed processing delegate; render pre-processing is the
-last PCM observation currently instrumented.
+Physical-device acceptance passed on October 21. The standalone microphone test
+apps, periodic RTP/media snapshots, capture/render PCM diagnostic counters, and
+debug native WebRTC file logger have been removed. The capture post-processing
+delegate remains attached because it supplies learner audio to the WAV recorder.
+The bounded support timeline, audio-session lifecycle/error events, and assisted
+acceptance tests remain available for future regressions. Earlier diagnostic
+results above describe historical investigation builds.

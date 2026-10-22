@@ -237,4 +237,51 @@ class EvaluationResponse(BaseModel):
     speech_pending_turn_ids: list[str] = Field(default_factory=list)
     speech_assessments: list[SpeechAssessment] = Field(default_factory=list)
     speech_summary: SpeechSummary | None = None
+    transcript_windows_total: int = 0
+    transcript_windows_completed: int = 0
     not_assessed: list[str] = Field(default_factory=lambda: ["pronunciation", "spoken_fluency"])
+
+
+class BatchObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    category: Literal['grammar', 'vocabulary', 'coherence']
+    polarity: Literal['strength', 'difficulty', 'uncertain']
+    finding: str = Field(min_length=1, max_length=300)
+    source_id: str = Field(min_length=1, max_length=100)
+    start_char: int = Field(ge=0)
+    end_char: int = Field(gt=0)
+    quote: str = Field(min_length=1, max_length=200)
+
+
+class BatchCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_id: str
+    start_char: int = Field(ge=0)
+    end_char: int = Field(gt=0)
+    original: str = Field(min_length=1, max_length=200)
+    improved: str = Field(min_length=1, max_length=200)
+    explanation: str = Field(min_length=1, max_length=300)
+
+
+class BatchFindings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    observations: list[BatchObservation] = Field(max_length=6)
+    corrections: list[BatchCorrection] = Field(max_length=3)
+
+
+class EvidenceSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    observation_ids: list[str] = Field(max_length=6)
+    correction_ids: list[str] = Field(max_length=3)
+
+
+class SessionAggregation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    summary: str = Field(min_length=1, max_length=3000)
+    grammar: EvaluationCategory
+    vocabulary: EvaluationCategory
+    coherence: EvaluationCategory
+    strengths: list[str] = Field(min_length=1, max_length=3)
+    next_steps: list[str] = Field(min_length=1, max_length=3)
+    observation_ids: list[str] = Field(max_length=36)
+    correction_ids: list[str] = Field(max_length=10)

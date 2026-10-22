@@ -47,16 +47,39 @@ The provider ID returned here is from credential configuration, not a WebRTC cal
 
 `backend/web_app.py` optionally serves the browser form at `GET /practice`. `browser/public/practice.mjs` binds its controls;
 `browser/public/realtime.mjs` manages microphone permission, SDP negotiation, playback,
-events, and cleanup. Audio flows directly to Azure. Disconnect stops local media
-without changing stored session status. See the
+events, and cleanup. Live audio flows directly to Azure; learner recordings also
+go to the backend for persistence and Speech assessment. Disconnect stops local
+media and, through `browser/public/practice.mjs` and `browser/public/session.mjs`,
+requests session ending and upload finalization. See the
 [browser contract](browser-webrtc-api-contract.md) for lifecycle and tests.
 
 ## Deferred features
 
 Learner recording and finalized transcript uploads are implemented. Agent transcript capture is also implemented.
-Evaluation and retention remain deferred. Their old schemas, ports, routes, and placeholder
-classes have been removed. Hosted authentication verification and edge limits
-remain release work.
+Evaluation is implemented through POST/GET `/sessions/{session_id}/evaluation` in
+`backend/app/main.py`, coordinated by `backend/app/services/evaluations.py`.
+`backend/app/storage/evaluations.py` persists immutable input snapshots, attempt
+status, and results; completed requests replay the saved result. New evaluations
+require an ended session with a complete manifest and at least one learner transcript
+(`backend/app/storage/completeness.py`). `backend/tests/test_evaluations.py` covers
+creation, retrieval, replay, readiness rejection, provider failures, and retry.
+
+The [incremental evaluation contract](evaluation-api-contract.md) separates a 10 MiB
+canonical snapshot limit from model context admission. Finalized transcript uploads
+start checkpointed background work once accumulated evidence reaches 200,000 bytes;
+the existing hosted maintenance timer also advances active sessions. Evidence windows,
+validated source spans and bounded ID-based reduction feed whole-session scoring.
+Final POSTs reconcile immutable source coverage and resume unfinished work with 202;
+the browser advances these checkpoints automatically. The implementation lives in
+`backend/app/services/evaluation_batches.py`; context admission conservatively counts
+UTF-8 bytes with output and safety reserves rather than using an exact tokenizer.
+
+Retention of captured session data remains deferred: the inspected routes and storage
+in `backend/app/main.py` and `backend/app/storage/` provide no session-data purge
+workflow or age-based deletion policy. Inactivity expiry changes session status;
+it does not delete recordings or transcripts. Hosted authentication verification
+and edge limits remain release work. These implementation and test paths do not
+establish hosted verification.
 
 
 ## Learner input storage
@@ -69,14 +92,23 @@ creating duplicates. A failure rolls back the entire component write.
 
 The additive `learner_turns` table stores audio bytes and transcript JSON in one
 row per `(session_id, turn_id)`, with separate receipt timestamps. No external
-provider is called during capture, and session state is unchanged. Audio is bounded
+provider is called by the storage transaction. Audio capture then calls
+`assess_uploaded_audio()` synchronously through `backend/app/services/learner_inputs.py`;
+transcript capture does not call a provider. Uploads preserve session status and
+refresh activity only while active. Audio is bounded
 to 10 MiB while reading the request; SQLite work runs off the async event loop.
 
-The browser must record learner microphone audio and forward finalized learner
-text with a stable turn ID. Audio and transcript can arrive independently. There
-is no background evaluation worker or browser integration for these uploads yet.
-Transcript evaluation is available through synchronous POST/GET evaluation routes;
-see [the evaluation contract](evaluation-api-contract.md).
+`browser/public/recorder.mjs` records learner microphone turns; callbacks in
+`browser/public/practice.mjs` connect recordings and provider events to
+`browser/public/session.mjs`. Its `SessionSync` uploads audio and finalized learner
+text under the same stable turn UUID. Audio and transcript can arrive independently;
+identical retries are acknowledged and changed content conflicts
+(`backend/app/storage/sqlite.py`, `backend/tests/test_learner_inputs.py`).
+`browser/tests/session.test.mjs` covers shared audio/transcript IDs, retries, and
+manifest finalization. Transcript uploads and the hosted maintenance timer advance
+incremental evaluation in the background; the browser requests and advances final
+evaluation after saving a complete session. See
+[the evaluation contract](evaluation-api-contract.md).
 
 
 ## Agent transcript storage
@@ -88,19 +120,37 @@ so duplicate concurrent uploads produce one row. Learner tables remain unchanged
 
 Provider predecessor IDs and optional client playback offsets retain ordering
 context. Server receipt time is not chronological turn order. Ingestion accepts
-missing predecessors; resolving the complete conversation remains future work.
+missing predecessors. `browser/public/session.mjs` uploads finalized
+`response.output_audio_transcript.done` events, deduplicates content identities,
+and reports playback as `unknown`; it does not supply predecessor IDs or playback
+offsets (`browser/tests/session.test.mjs`). Evaluation snapshots include stored
+agent parts ordered by item ID and content index in
+`backend/app/storage/evaluations.py`; this does not reconstruct chronological
+conversation order. Storage ordering metadata and retry behavior are covered by
+`backend/tests/test_agent_transcripts.py`.
 See [the agent-transcript contract](agent-transcripts-api-contract.md).
 
 ## Session ending
 
 `POST /sessions/{session_id}/end` calls `end_session()` and then
-`end_stored_session()`. An immediate SQLite transaction serializes concurrent end
+`end_stored_session()` in `backend/app/storage/sqlite.py`. An immediate SQLite transaction serializes concurrent end
 requests, adds the `ended_at` column for older databases, and changes active to
-ended with a UTC timestamp. Retries return the stored timestamp. Provider metadata
+ended with a UTC timestamp and `end_reason='client_requested'`. Retries return the stored timestamp. Provider metadata
 and captured inputs are preserved. Creating and failed sessions cannot be ended.
 
 Both capture helpers accept active and ended sessions to support delayed uploads.
-Ending does not close WebRTC, establish upload completeness, or run evaluation.
+The end API does not close WebRTC, establish upload completeness, or run evaluation.
+`backend/tests/test_session_ending.py` covers idempotency, concurrent ending,
+invalid states, and late uploads.
+
+In the browser, `browser/public/realtime.mjs` closes WebRTC and local media, then
+notifies `browser/public/practice.mjs` to call `SessionSync.finish()` in
+`browser/public/session.mjs`. Finalization requests `/end`, waits for recordings
+and uploads, retries failed saves, and submits the immutable upload manifest.
+Feedback requires server readiness plus the browser's successful capture/upload
+checks; missing transcripts keep it unavailable. `browser/tests/session.test.mjs`
+covers this ordering and failure handling. Page exit requests keepalive ending,
+but does not guarantee completion of asynchronous uploads or manifest submission.
 
 ## Activity and stale sessions
 

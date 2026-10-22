@@ -22,3 +22,5 @@ def cleanup_inactive_sessions(timer: func.TimerRequest) -> None:
     logging.info("Ended %d inactive practice sessions.", count)
     failed = fail_stale_creating_sessions(get_settings().database_path)
     logging.info("Failed %d abandoned session starts.", failed)
+    from app.services.evaluation_batches import resume_pending
+    resume_pending(get_settings())

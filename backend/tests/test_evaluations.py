@@ -200,3 +200,39 @@ def test_ended_but_not_evaluable(learner_turn, mock_openai_post, mode):
     mock_openai_post.reset_mock()
     assert api.post(f'/sessions/{sid}/evaluation').status_code == 409
     mock_openai_post.assert_not_called()
+
+
+def test_conversation_context_orders_shared_clock_and_preserves_uncertainty():
+    from app.storage.evaluations import conversation_context
+    learners = [dict(turn_id='learner-z', text='Answer', start_ms=200, end_ms=400)]
+    agents = [
+        dict(item_id='item-a', content_index=0, text='Later', start_ms=500,
+             end_ms=600, playback_status='completed'),
+        dict(item_id='item-z', content_index=1, text='Question', start_ms=0,
+             end_ms=250, playback_status='interrupted'),
+        dict(item_id='item-unknown', content_index=0, text='Unknown', start_ms=None,
+             end_ms=None, playback_status='unknown'),
+        dict(item_id='item-z', content_index=0, text='First part', start_ms=0,
+             end_ms=100, playback_status='completed'),
+    ]
+    context = conversation_context(learners, agents)
+    assert [entry['text'] for entry in context['timeline']] == [
+        'First part', 'Question', 'Answer', 'Later']
+    assert [entry['role'] for entry in context['timeline']] == [
+        'agent', 'agent', 'learner', 'agent']
+    assert context['timeline'][1]['playback_status'] == 'interrupted'
+    assert context['timeline'][1]['end_ms'] == 250
+    assert context['untimed_agent_transcripts'][0]['text'] == 'Unknown'
+    assert 'role' not in learners[0] and 'role' not in agents[0]
+
+
+def test_new_snapshot_includes_conversation_context(ready_evaluation, mock_openai_post):
+    api, settings, url = ready_evaluation
+    assert api.post(url).status_code == 201
+    payload = json.loads(mock_openai_post.call_args.kwargs['json']['messages'][1]['content'])
+    assert payload['conversation_context']['timeline'] == [
+        dict(role='learner', **payload['learner_transcripts'][0])]
+    assert payload['conversation_context']['untimed_agent_transcripts'] == []
+    with sqlite3.connect(settings.database_path) as db:
+        snapshot = db.execute('SELECT snapshot FROM session_evaluations').fetchone()[0]
+    assert json.loads(snapshot) == payload

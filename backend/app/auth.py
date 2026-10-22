@@ -154,10 +154,20 @@ def current_account(request: Request, settings: Settings = Depends(get_settings)
         raise HTTPException(409, 'The signed-in account changed.',
                             headers={'X-Account-Changed': '1'})
     try:
+        requesting_evaluation = request.method == 'POST' and request.url.path.endswith('/evaluation')
+        # Checkpoint POSTs resume an existing evaluation, rather than starting a new
+        # billable session evaluation. The general request quota still applies.
+        if requesting_evaluation:
+            sid = request.path_params.get('session_id')
+            with database_connection(settings.database_path) as db:
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='session_evaluations'").fetchone():
+                    requesting_evaluation = not bool(db.execute(
+                        'SELECT 1 FROM session_evaluations e JOIN practice_sessions s ON s.id=e.session_id '
+                        'WHERE e.session_id=? AND s.owner_account_id=?', (str(sid), account_id)).fetchone())
         enforce_account_limits(
             settings.database_path, account_id,
             creating_session=request.method == 'POST' and request.url.path == '/sessions',
-            requesting_evaluation=request.method == 'POST' and request.url.path.endswith('/evaluation'),
+            requesting_evaluation=requesting_evaluation,
             requests_per_minute=settings.account_requests_per_minute,
             sessions_per_hour=settings.account_sessions_per_hour,
             evaluations_per_hour=settings.account_evaluations_per_hour)

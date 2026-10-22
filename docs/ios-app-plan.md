@@ -1,6 +1,6 @@
 # iOS app implementation plan
 
-**Status:** Phases 0–4 completed at their simulator gates; Phase 5 is in progress.\
+**Status:** Phases 0–4 completed at their simulator gates; Phase 5 physical-device acceptance passed, confirmed by the user on October 21, 2026. See [the acceptance record](ios-acceptance-testing.md).\
 **Source:** [iOS app design](ios-app-design.md).\
 **Scope:** One foreground speaking practice at a time on a physical iPhone, with local history and an offline-readable coaching report.
 
@@ -8,7 +8,7 @@
 
 The first release lets a learner choose a goal and level, hold a manual-turn voice conversation, save the full conversation, receive feedback, and reopen past practices offline. It uses the existing backend contracts for [sessions](sessions-api-contract.md), [learner inputs](learner-inputs-api-contract.md), [agent transcripts](agent-transcripts-api-contract.md), [completeness](session-recovery-and-completeness.md), and [evaluation](evaluation-api-contract.md). The client owns presentation, media, and recoverable local capture; the backend remains the authority for session state and assessment.
 
-The final acceptance environment is a physical iPhone. Earlier phases use simulator runs and automated tests; live microphone, audio route, WebRTC, and provider behavior remain unverified until the final device pass. Background calling, reconnection to an old session, cross-device history, and public multi-user release are outside this plan.
+The final acceptance environment is a physical iPhone. Earlier phases use simulator runs and automated tests; the final physical-device acceptance run is now complete with no issues, as confirmed by the user on October 21, 2026. Background calling, reconnection to an old session, cross-device history, and public multi-user release are outside this plan.
 
 ## Work sequence
 
@@ -90,7 +90,7 @@ partition remains unassigned.
 
 ## Verification record to fill during delivery
 
-The implementing agent marks an increment or phase **Completed** only after its build, tests, run check, and stated gate pass. Record the implementation commit, Xcode version, build and test commands/results, run destination and outcome, backend deployment when used, and unresolved defects. If a gate cannot be verified, leave it **In progress** or **Blocked** with the reason and next action; do not mark it complete based on code changes alone. The gates above are planned acceptance criteria; none are claimed as completed by this document.
+The implementing agent marks an increment or phase **Completed** only after its build, tests, run check, and stated gate pass. Record the implementation commit, Xcode version, build and test commands/results, run destination and outcome, backend deployment when used, and unresolved defects. If a gate cannot be verified, leave it **In progress** or **Blocked** with the reason and next action; do not mark it complete based on code changes alone. The gates above define acceptance criteria; the current completion status is recorded at the top of this document and in the [acceptance record](ios-acceptance-testing.md). Dated verification entries below retain their historical status.
 
 ### Phase 0 and Phase 1 verification — 2026-09-27
 

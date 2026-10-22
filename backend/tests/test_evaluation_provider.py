@@ -65,3 +65,28 @@ def test_final_synthesis_uses_saved_components(settings, mock_openai_post,
     assert evidence['speech_findings']['overview']['average_pronunciation'] == 85
     assert result.grammar == transcript.grammar
     assert result.corrections == transcript.corrections
+
+
+def test_chronological_context_reaches_provider(settings, mock_openai_post, evaluation_response):
+    mock_openai_post.return_value = evaluation_response
+    context = {'timeline': [
+        {'role': 'agent', 'text': 'Why?', 'start_ms': 0, 'playback_status': 'interrupted'},
+        {'role': 'learner', 'turn_id': 'turn-1', 'text': 'Because.', 'start_ms': 100}],
+        'untimed_agent_transcripts': []}
+    snapshot = json.dumps({'learner_transcripts': [], 'conversation_context': context})
+    evaluate_snapshot(snapshot, 'text', settings)
+    messages = mock_openai_post.call_args.kwargs['json']['messages']
+    assert json.loads(messages[1]['content'])['conversation_context'] == context
+    assert 'Equal timestamps and overlapping intervals' in messages[0]['content']
+    assert 'Older snapshots without' in messages[0]['content']
+
+
+def test_context_overflow_and_process_capacity_do_not_dispatch(settings, mock_openai_post):
+    import pytest
+    from app.services.evaluation_budget import ContextLimit, ProviderBusy, PROVIDER_SLOTS
+    with pytest.raises(ContextLimit):
+        evaluate_snapshot(json.dumps({'learner_transcripts': [], 'extra': 'X' * 40000}), 'text', settings)
+    with PROVIDER_SLOTS, PROVIDER_SLOTS:
+        with pytest.raises(ProviderBusy):
+            evaluate_snapshot(json.dumps({'learner_transcripts': []}), 'text', settings)
+    mock_openai_post.assert_not_called()

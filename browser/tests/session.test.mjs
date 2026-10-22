@@ -222,3 +222,31 @@ test('account switch cancels pending uploads and discards buffered audio', async
   assert.equal(requests.length, 1);
   assert.equal(requests[0].signal.aborted, true);
 });
+
+test("evaluation advances transcript checkpoints until the final report", async t => {
+  const h = harness();
+  t.after(() => h.session.cancel());
+  h.session.ready = true;
+  let calls = 0;
+  h.session.fetchImpl = async () => ({ ok: true, json: async () => ++calls < 3
+    ? { status: "waiting", transcript_status: "running", transcript_windows_total: 2,
+        transcript_windows_completed: calls }
+    : { status: "completed", result: { summary: "Ready" } } });
+  assert.equal((await h.session.evaluate()).status, "completed");
+  assert.equal(calls, 3);
+  assert.match(h.messages[0], /1 of 2/);
+});
+
+test("account invalidation stops evaluation checkpoint polling", async t => {
+  const h = harness();
+  t.after(() => h.session.cancel());
+  h.session.ready = true;
+  let calls = 0;
+  h.session.fetchImpl = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ status: "waiting" }) };
+  };
+  h.session.wait = async () => { h.session.invalidated = true; };
+  await assert.rejects(h.session.evaluate(), error => error.reason === "changed");
+  assert.equal(calls, 1);
+});

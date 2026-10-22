@@ -1,6 +1,6 @@
 # iOS speaking practice app design
 
-**Status:** Phase 3 durable history and upload journal passed its simulator gate; final completeness, feedback, and device verification remain.\
+**Status:** Physical-device acceptance passed with no issues, confirmed by the user on October 21, 2026. See [the acceptance record](ios-acceptance-testing.md).\
 **Client:** SwiftUI on iPhone, with a native WebRTC transport.\
 **Backend:** The existing HTTP API in `backend/app/main.py`.
 

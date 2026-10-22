@@ -56,3 +56,29 @@ def test_evaluation_quota_is_independent_of_session_quota(settings):
         raise AssertionError('Second evaluation should be limited')
     enforce_account_limits(settings.database_path, 'alice', creating_session=True,
                            requests_per_minute=20, sessions_per_hour=1, now=121)
+
+
+def test_checkpoint_auth_reuses_evaluation_quota(ready_evaluation, monkeypatch):
+    from app import auth
+    from app.storage.evaluations import evaluation_record
+    from starlette.requests import Request
+    api, settings, url = ready_evaluation
+    account = '00000000-0000-4000-8000-000000000001'
+    sid = url.split('/')[2]
+    settings.account_evaluations_per_hour = 1
+    monkeypatch.setattr(auth, '_platform_principal', lambda *args: object())
+    monkeypatch.setattr(auth, 'account_for_identity', lambda *args: account)
+    request = Request({'type': 'http', 'method': 'POST', 'path': url,
+                       'headers': [], 'path_params': {'session_id': sid}})
+    assert auth.current_account(request, settings) == account
+    assert evaluation_record(settings.database_path, sid, account, 'text')[0] == 'reserved'
+    for _ in range(25):
+        assert auth.current_account(request, settings) == account
+    another = Request({'type': 'http', 'method': 'POST', 'path': '/sessions/other/evaluation',
+                       'headers': [], 'path_params': {'session_id': 'other'}})
+    try:
+        auth.current_account(another, settings)
+    except HTTPException as error:
+        assert error.status_code == 429
+    else:
+        raise AssertionError('A new session evaluation must still consume quota')

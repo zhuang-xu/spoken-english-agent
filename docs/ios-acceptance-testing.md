@@ -1,5 +1,43 @@
 # iOS acceptance testing
 
+## Current acceptance status — confirmed October 21, 2026
+
+**Passed.** The user confirms that the physical-device acceptance run is complete
+with no issues. The iOS physical-device acceptance gate is closed. This status
+supersedes the earlier capture failures and pending-device statements below,
+which are retained as historical investigation records.
+
+Confirmation was received on October 21; the run date, build/deployment identifiers,
+and result bundle were not supplied with this update. No new device test was run
+for this documentation change. Hosted two-account isolation and public-rollout
+checks are separate from this iOS acceptance confirmation.
+
+## Post-cleanup physical retest — October 22, 2026
+
+Ran the signed current working-tree build on the connected iPhone 16 Pro after
+removing the standalone microphone apps, periodic media/PCM counters, and native
+WebRTC file logger. The test runner initially needed provisioning and device
+certificate trust; after trust was enabled, both physical tests executed.
+
+- `testConnectOnPhysicalDevice` passed (50.327 seconds), including live account
+  verification, realtime connection, and an opening agent transcript.
+- `testSpokenTurnAndHostedFeedbackOnPhysicalDevice` failed (44.085 seconds): after
+  its fixed 20-second recording wait, `finishTurnButton` was absent and the UI
+  already showed `startTurnButton`. The support timeline records a 12.6-second
+  capture (201,600 frames at 16 kHz, RMS approximately 0.0000151), followed by
+  finalization and a return to ready before the automated finish tap. The log
+  does not identify what triggered finalization. Nonzero capture alone does not
+  establish intelligible speech, audible playback, or successful feedback.
+
+The spoken test stopped before its expected-sentence and saved-feedback checks;
+those outcomes remain unverified for this cleanup build. This retest does not
+replace the earlier user-confirmed acceptance with a new full pass.
+
+Result bundle: `/tmp/spoken-diagnostic-cleanup-device-trusted.xcresult`.
+Build/test log: `/tmp/spoken-diagnostic-cleanup-device-trusted.log`.
+
+## Historical device investigation
+
 ## October 13 audio configuration fix
 
 Follow-up investigation identified native initialization failure, not handset
@@ -17,7 +55,7 @@ one factory yet reproduced the original failure, so that ownership correction
 did not resolve the audio initialization failure by itself.
 
 The fixed physical iPhone connection test passed at 09:57 Asia/Shanghai. Its
-[diagnostic timeline](diagnostics/ios-audio-config-fixed-2026-10-13.jsonl) shows:
+diagnostic timeline (historical file removed) shows:
 
 - Speaker output and `PlayAndRecord` / `VoiceChat` throughout seven connected
   route snapshots, with built-in microphone and output volume 0.6.
@@ -36,11 +74,9 @@ connected successfully but reproduced the audio failure. Result bundles are in
 `/private/tmp/spoken-native-audio-20261013.xcresult`, and
 `/private/tmp/spoken-audio-config-fixed-20261013.xcresult`.
 
-Native WebRTC file logging is debug-only and enabled exclusively by
-`PHYSICAL_AUDIO_DIAGNOSTICS=1` in the explicit physical connection test. It is
-bounded to 1 MB, excluded from cloud backup, and stops after call cleanup. These
-native logs may contain network/device metadata; they remain in the development
-device container and `/private/tmp`, outside the committed metadata timelines.
+The native WebRTC file logger and periodic media/PCM diagnostic instrumentation
+used during these historical runs were removed on October 22 after acceptance.
+The normal bounded support timeline remains available.
 
 ## October 13 physical audio-route diagnostic run
 
@@ -69,7 +105,7 @@ audio-device state, and capture/render PCM counters.
   with 35 packets lost; decoded sample and audio-energy counters remained zero.
   Incoming network audio therefore does not establish local playout.
 
-The [filtered run timeline](diagnostics/ios-audio-route-2026-10-13.jsonl) retains
+The filtered run timeline (historical file removed) contained
 metadata only. Full before/after logs are in
 `/private/tmp/spoken-audio-route-before-20261013` and
 `/private/tmp/spoken-audio-route-after-20261013`; the test result bundle is

@@ -1,5 +1,19 @@
 # iOS WebRTC framework evaluation
 
+## Current acceptance status — confirmed October 21, 2026
+
+**Passed.** The user confirms that the physical-device acceptance run is complete
+with no issues. The iOS physical-device acceptance gate is closed. This status
+supersedes the earlier capture failures and pending-device statements below,
+which are retained as historical investigation records.
+
+Confirmation was received on October 21; the run date, build/deployment identifiers,
+and result bundle were not supplied with this update. No new device test was run
+for this documentation change. Hosted two-account isolation and public-rollout
+checks are separate from this iOS acceptance confirmation.
+
+## Historical audit and verification records
+
 **Current integration (October 12):** Updated from 137.7151.00 to the latest
 WebRTC-SDK release, 150.7871.01. Direct upstream package resolution failed on
 the tools-5.9 / visionOS.v26 manifest mismatch. The local wrapper at

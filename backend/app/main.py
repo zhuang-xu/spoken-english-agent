@@ -2,12 +2,13 @@ from app.schemas import EvaluationResponse
 import logging
 import os
 import time
+from app.services.evaluation_batches import wake
 from app.services.evaluations import get_evaluation, run_evaluation
 from uuid import UUID
 
 from starlette.concurrency import run_in_threadpool
 
-from fastapi import Header, Path, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Header, Path, Depends, FastAPI, HTTPException, Request, Response
 
 from app.schemas import AgentTranscript, AgentTranscriptReceipt
 from app.services.agent_transcripts import capture_agent_transcript
@@ -196,6 +197,7 @@ async def upload_learner_audio(
 )
 def upload_learner_transcript(
     session_id: UUID, turn_id: UUID, transcript: LearnerTranscript, response: Response,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     account_id: str = Depends(current_account),
 ) -> LearnerInputReceipt:
@@ -205,6 +207,7 @@ def upload_learner_transcript(
     receipt, response.status_code = capture_input(
         settings, str(session_id), str(turn_id), "transcript", transcript.model_dump_json(), account_id
     )
+    background_tasks.add_task(wake, settings, str(session_id), account_id)
     response.headers["Cache-Control"] = "no-store"
     return receipt
 
@@ -216,6 +219,7 @@ def upload_learner_transcript(
 )
 def upload_agent_transcript(
     session_id: UUID, transcript: AgentTranscript, response: Response,
+    background_tasks: BackgroundTasks,
     item_id: str = Path(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$"),
     content_index: int = Path(ge=0), settings: Settings = Depends(get_settings),
     account_id: str = Depends(current_account),
@@ -224,6 +228,7 @@ def upload_agent_transcript(
     receipt, response.status_code = capture_agent_transcript(
         settings, str(session_id), item_id, content_index, transcript, account_id
     )
+    background_tasks.add_task(wake, settings, str(session_id), account_id)
     response.headers["Cache-Control"] = "no-store"
     return receipt
 
@@ -242,7 +247,7 @@ EVALUATION_ERRORS = {
 @app.post('/sessions/{session_id}/evaluation', response_model=EvaluationResponse,
           status_code=201, responses={
               200: {'description': 'Saved result'},
-              202: {'description': 'Transcript complete; waiting for Speech turns'},
+              202: {'description': 'Evaluation checkpoint saved; more transcript or Speech work remains'},
               **EVALUATION_ERRORS})
 def evaluate_session(session_id: UUID, response: Response,
                      settings: Settings = Depends(get_settings),

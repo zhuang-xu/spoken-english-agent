@@ -8,11 +8,6 @@ import WebRTC
 // Synchronization is explicit: atomic ring/lifecycle state, gated capture format,
 // and worker-confined writer state. Control calls are serialized by the coordinator.
 final class WebRTCAudioCapture: NSObject, TurnRecording, @unchecked Sendable {
-    #if canImport(WebRTC)
-    private let inputDiagnostics = WebRTCOutputDiagnostics(stage: "capture_post_processing")
-    func recordDiagnostics() { inputDiagnostics.recordSnapshot() }
-    #endif
-
     private final class Slot {
         let samples = UnsafeMutablePointer<Float>.allocate(capacity: 960)
         init() { samples.initialize(repeating: 0, count: 960) }
@@ -267,11 +262,9 @@ final class WebRTCAudioCapture: NSObject, TurnRecording, @unchecked Sendable {
 #if canImport(WebRTC)
 extension WebRTCAudioCapture: RTCAudioCustomProcessingDelegate {
     func audioProcessingInitialize(sampleRate: Int, channels: Int) {
-        inputDiagnostics.audioProcessingInitialize(sampleRate: sampleRate, channels: channels)
         initialize(sampleRate: sampleRate, channels: channels)
     }
     func audioProcessingProcess(audioBuffer: RTCAudioBuffer) {
-        inputDiagnostics.audioProcessingProcess(audioBuffer: audioBuffer)
         receive(frames: audioBuffer.frames, channels: audioBuffer.channels) {
             UnsafePointer(audioBuffer.rawBuffer(forChannel: $0))
         }

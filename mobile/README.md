@@ -1,9 +1,8 @@
 # iOS client
 
-Phase 4 is complete at the simulator gate. Phase 5 local build and tests pass;
-the signed iPhone run passed 121 unit tests, five fixture UI tests, and live Azure
-connection. Real spoken capture failed with zero frames, so hosted speech feedback
-remains unverified; see the [device acceptance record](../docs/ios-acceptance-testing.md).
+Phase 5 physical-device acceptance is complete with no issues, as confirmed by
+the user on October 21, 2026. Earlier failed audio runs are historical; see the
+[device acceptance record](../docs/ios-acceptance-testing.md).
 The checked-in `SpokenAgents.xcodeproj`
 has an iPhone SwiftUI app, unit tests, UI tests, a shared scheme, and the pinned
 native WebRTC package. Its call coordinator, backend client, SDP exchange,
@@ -18,8 +17,7 @@ retries saving or assessment, and refreshes an existing report without losing it
 cached copy. Native sign-in now uses MSAL and a delegated Spoken Agents API scope.
 The app verifies `/me` before selecting an account's SwiftData partition. The
 legacy `local` partition remains hidden. A cached MSAL account can reopen its
-previously verified history offline; sign-out hides it immediately. Hosted and
-speech feedback verification remain pending.
+previously verified history offline; sign-out hides it immediately. Physical-device acceptance is complete; hosted two-account isolation remains a separate verification item.
 The app limits a recorded turn to five minutes and removes acknowledged upload
 bytes after a complete report is saved. Pending uploads remain available for retry.
 The [account isolation plan](../docs/account-isolation-plan.md) puts backend
@@ -87,8 +85,8 @@ The native build is configured for the `spoken-agents-ios` public client and hos
 API. Its redirect URI is `msauth.com.zhuangxu.spokenagents.app://auth`.
 The API registration exposes the delegated `access_as_user` scope, and the native
 client requests it. The hosted API validates that audience, scope, and client ID.
-These IDs, URLs, and scope are public configuration, not secrets. Interactive
-sign-in and a hosted `/me` response still need real-device verification. The app
+These IDs, URLs, and scope are public configuration, not secrets. Hosted account verification passed in the recorded physical connection test;
+the user has since confirmed completion of physical-device acceptance. The app
 sends the MSAL access token
 only to `API_BASE_URL`; the separate short-lived realtime credential goes only
 to the provider's SDP endpoint. The native client uses the
@@ -119,7 +117,7 @@ only during a learner turn; a serial worker normalizes, downmixes, resamples, an
 writes protected 16 kHz mono Int16 WAV files. Overflow, unsupported formats,
 mid-turn format changes, and capture release invalidate the recording rather than
 uploading partial audio. Existing UUIDs, journal uploads, and feedback are reused.
-Physical-device callback delivery and hosted audio feedback remain unverified.
+Physical-device acceptance passed, as confirmed by the user on October 21, 2026.
 Recorder start/stop suspend while the worker opens or finalizes the file; cancel
 queues cleanup. Live journal file preparation and upload reading/hashing run in
 background tasks. SwiftData commits and account checks stay on the main actor.
@@ -137,26 +135,20 @@ See the [implementation plan](../docs/ios-app-plan.md) and
 Authenticator returns are handled once by the UIKit scene delegate, preserving
 `sourceApplication` for MSAL broker validation. Sign-in failures show whether
 Microsoft authentication or API account verification failed, with error codes
-only. Real-device Authenticator round-trip verification remains required.
+only. The physical-device acceptance run is complete per the user confirmation;
+no separate Authenticator round-trip result was supplied in that update.
 
 ## iPhone diagnostics
 
-The saved WebRTC configuration explicitly sets `PlayAndRecord` / `VoiceChat`
-as well as speaker options. The October 13 device run confirmed this resolves
-native initialization errors caused by reapplying inherited `SoloAmbient`
-settings. Native playout/recording and decoded audio counters now advance;
-The custom PCM delegates are now explicitly assigned through property setters:
-the SDK adapter initializer ignores the supplied delegates, leaving the WAV
-recorder without callbacks. A native-module regression checks both delegate
-attachments and factory creation. Physical spoken capture with this correction
-still requires verification. See the
+The capture post-processing delegate is assigned through its property setter
+because the SDK adapter initializer ignores the supplied delegate. This callback
+supplies learner audio to the WAV recorder and remains covered by a native-module
+regression test. Physical-device acceptance passed on October 21, 2026; see the
 [device test record](../docs/ios-acceptance-testing.md).
 
-The explicit physical connection UI test enables bounded native WebRTC logs
-through `PHYSICAL_AUDIO_DIAGNOSTICS=1` in debug builds. Retrieve
-`Library/Application Support/NativeAudioDiagnostics` using the same device-copy
-procedure below. Native logs can include network/device metadata; keep them
-local. Normal launches use the metadata-only diagnostic timeline described below.
+The standalone microphone test apps, periodic WebRTC media statistics, PCM signal
+counters, and debug native file logging were removed after acceptance. Normal
+support logging remains available below.
 
 The app persistently records UTC timestamps, launch and connection attempt IDs,
 sign-in states, request routes/status/timing, microphone and audio lifecycle,
@@ -229,5 +221,5 @@ isolation, recording, retry, and offline report flows remain in use.
 
 Use the [iOS acceptance procedure](../docs/ios-acceptance-testing.md) for audio
 and feedback releases. A passing build or connection test is not a passing
-spoken session. Capture validation checks decoded samples and signal; device
-diagnostics record frames, duration, and RMS without recording speech text.
+spoken session. Recording validation checks decoded frames, duration, and RMS
+without logging speech text.

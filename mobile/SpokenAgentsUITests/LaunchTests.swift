@@ -96,7 +96,6 @@ final class PhysicalConnectionTests: XCTestCase {
     #else
       continueAfterFailure = false
       let app = XCUIApplication()
-      app.launchEnvironment["PHYSICAL_AUDIO_DIAGNOSTICS"] = "1"
       app.launch()
       let start = app.buttons["startPracticeButton"]
       XCTAssertTrue(start.waitForExistence(timeout: 45))
@@ -147,10 +146,6 @@ final class PhysicalConnectionTests: XCTestCase {
         NSPredicate(format: "label BEGINSWITH %@", "Agent: ")).firstMatch
       XCTAssertTrue(openingTranscript.waitForExistence(timeout: 20),
                     "Require an agent audio transcript, not only an open data channel")
-      // Keep the media path alive for both bounded packet/route snapshots.
-      let mediaWindow = expectation(description: "Opening audio diagnostic window")
-      DispatchQueue.main.asyncAfter(deadline: .now() + 12) { mediaWindow.fulfill() }
-      wait(for: [mediaWindow], timeout: 15)
     #endif
   }
 }

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     azure_openai_api_key: SecretStr = SecretStr("")
     azure_openai_deployment: str = ""
     azure_openai_evaluation_deployment: str = ""
+    # Must not exceed the deployed model's actual context capacity. Byte-level
+    # token admission deliberately underfills this configured capacity.
+    evaluation_context_capacity: int = Field(default=32768, ge=32768, le=2_000_000)
     azure_speech_key: SecretStr = SecretStr("")
     azure_speech_region: str = ""
     realtime_voice: str = "verse"

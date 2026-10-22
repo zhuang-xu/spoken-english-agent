@@ -1,6 +1,6 @@
 # Account isolation API contract
 
-**Status:** Backend, browser, and iOS account boundaries implemented locally; native WebRTC build and simulator tests pass. Hosted two-account and physical-device verification remain pending.
+**Status:** Backend, browser, and iOS account boundaries implemented locally; native WebRTC build and simulator tests pass. iOS physical-device acceptance passed with no issues, confirmed by the user on October 21, 2026. Hosted two-account verification remains pending.
 
 ## Authentication
 
