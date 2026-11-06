@@ -1,28 +1,3 @@
-# iOS client
-
-Phase 5 physical-device acceptance is complete with no issues, as confirmed by
-the user on October 21, 2026. Earlier failed audio runs are historical; see the
-[device acceptance record](../docs/ios-acceptance-testing.md).
-The checked-in `SpokenAgents.xcodeproj`
-has an iPhone SwiftUI app, unit tests, UI tests, a shared scheme, and the pinned
-native WebRTC package. Its call coordinator, backend client, SDP exchange,
-permission flow, manual-turn event handling, and WAV recorder are exercised with
-fakes. The foreground practice loop validates setup, shows transcript parts,
-sends heartbeats, and handles cancellation and audio interruptions. A SwiftData
-store keeps sessions, transcript parts, protected turn audio, an immutable
-upload journal, final manifests, and full cached reports. Finishing a practice
-retries uploads, declares every intended component, checks readiness, and requests
-coaching with bounded progress polling. History opens the full report offline,
-retries saving or assessment, and refreshes an existing report without losing its
-cached copy. Native sign-in now uses MSAL and a delegated Spoken Agents API scope.
-The app verifies `/me` before selecting an account's SwiftData partition. The
-legacy `local` partition remains hidden. A cached MSAL account can reopen its
-previously verified history offline; sign-out hides it immediately. Physical-device acceptance is complete; hosted two-account isolation remains a separate verification item.
-The app limits a recorded turn to five minutes and removes acknowledged upload
-bytes after a complete report is saved. Pending uploads remain available for retry.
-The [account isolation plan](../docs/account-isolation-plan.md) puts backend
-ownership enforcement before native sign-in and defines how verified accounts
-select local history partitions.
 
 ## Source organization (MVVM)
 
