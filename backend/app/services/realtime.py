@@ -1,4 +1,5 @@
 """Request an expiring Realtime credential from Azure OpenAI using the server's resource key."""
+from app.startup_timing import timed
 from datetime import datetime, timezone
 
 import httpx
@@ -8,6 +9,7 @@ from app.schemas import RealtimeClientCredential, RealtimeSession, SessionCreate
 from app.services.outcomes import outcome_guidance
 
 
+@timed('azure_credential')
 def create_realtime_session(preferences: SessionCreate, settings: Settings) -> RealtimeSession:
     outcome_instruction = outcome_guidance(preferences.speaking_goal, "conversation")
     response = httpx.post(

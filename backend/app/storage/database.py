@@ -4,6 +4,7 @@ Each transaction downloads the latest database and publishes its committed state
 before returning. Azure leases fence writers across processes and host restarts.
 This serializes database operations and is intended for small, private deployments.
 """
+from app.startup_timing import stage
 from contextlib import contextmanager, closing
 import os
 from pathlib import Path
@@ -34,18 +35,20 @@ def database_connection(database_path):
                 connection_timeout=10, read_timeout=20) as service:
             blob = service.get_blob_client(location.netloc, location.path.lstrip('/'))
             try:
-                blob.upload_blob(b'', overwrite=False)
+                with stage('blob_ensure_exists'):
+                    blob.upload_blob(b'', overwrite=False)
             except ResourceExistsError:
                 pass
             deadline = time.monotonic() + 20
-            while True:
-                try:
-                    lease = blob.acquire_lease(lease_duration=60)
-                    break
-                except HttpResponseError as error:
-                    if error.status_code != 409 or time.monotonic() >= deadline:
-                        raise
-                    time.sleep(0.15)
+            with stage('blob_lease_wait'):
+                while True:
+                    try:
+                        lease = blob.acquire_lease(lease_duration=60)
+                        break
+                    except HttpResponseError as error:
+                        if error.status_code != 409 or time.monotonic() >= deadline:
+                            raise
+                        time.sleep(0.15)
             stop = threading.Event()
             lost = threading.Event()
             def renew():
@@ -58,23 +61,27 @@ def database_connection(database_path):
             worker = threading.Thread(target=renew, daemon=True)
             worker.start()
             try:
-                original = blob.download_blob(lease=lease).readall()
+                with stage('blob_download'):
+                    original = blob.download_blob(lease=lease).readall()
                 with tempfile.TemporaryDirectory(prefix='spoken-db-') as folder:
                     path = Path(folder) / 'session.sqlite3'
                     path.write_bytes(original)
                     with closing(sqlite3.connect(path)) as connection:
                         with connection:
-                            yield connection
+                            with stage('sqlite_work'):
+                                yield connection
                     updated = path.read_bytes()
                     if lost.is_set():
                         raise sqlite3.OperationalError('Shared database lease was lost. Retry the request.')
                     if updated != original:
-                        blob.upload_blob(updated, overwrite=True, lease=lease)
+                        with stage('blob_upload'):
+                            blob.upload_blob(updated, overwrite=True, lease=lease)
             finally:
                 stop.set()
                 worker.join(timeout=25)
                 try:
-                    lease.release()
+                    with stage('blob_lease_release'):
+                        lease.release()
                 except AzureError:
                     pass  # A crashed/recycled worker's lease also expires after 60 seconds.
     except AzureError as error:

@@ -1,4 +1,5 @@
 """Resolve verified Entra identities to opaque local accounts."""
+from app.startup_timing import timed
 import base64
 import binascii
 from functools import lru_cache
@@ -43,6 +44,7 @@ def _entra_keys(issuer: str) -> PyJWKClient:
     return PyJWKClient(document['jwks_uri'], cache_jwk_set=True, lifespan=3600)
 
 
+@timed('token_verification')
 def _bearer(token: str, settings: Settings) -> Identity:
     if not settings.entra_tenant_id or not settings.entra_api_audience or not settings.entra_scope:
         raise HTTPException(503, 'API authentication is not configured.')
@@ -65,6 +67,7 @@ def _bearer(token: str, settings: Settings) -> Identity:
     return Identity(tenant, _guid(claims['oid']))
 
 
+@timed('platform_identity')
 def _platform_principal(request: Request, settings: Settings) -> Identity:
     # Only the Azure front end may inject this header. A local process never trusts it.
     if not (settings.trust_azure_platform_auth and os.environ.get('WEBSITE_SITE_NAME')
@@ -89,6 +92,7 @@ def _platform_principal(request: Request, settings: Settings) -> Identity:
     return Identity(tenant, object_id)
 
 
+@timed('account_lookup')
 def account_for_identity(database_path: str, identity: Identity) -> str:
     with database_connection(database_path) as db:
         db.execute('BEGIN IMMEDIATE')
@@ -102,6 +106,7 @@ def account_for_identity(database_path: str, identity: Identity) -> str:
         return db.execute('SELECT account_id FROM account_identities WHERE provider=? AND tenant_id=? AND object_id=?', key).fetchone()[0]
 
 
+@timed('quota_check')
 def enforce_account_limits(database_path: str, account_id: str, *, creating_session: bool,
                            requesting_evaluation: bool = False,
                            requests_per_minute: int, sessions_per_hour: int,

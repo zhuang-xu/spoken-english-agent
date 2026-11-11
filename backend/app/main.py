@@ -1,4 +1,5 @@
 from app.schemas import EvaluationResponse
+from app.startup_timing import StartupTiming, current as startup_current
 import logging
 import os
 import time
@@ -25,17 +26,36 @@ from app.services.completeness import get_data_status
 app = FastAPI(title="Spoken English Agent")
 
 
+_worker_request_seen = False
+
+
 @app.middleware('http')
 async def log_http_result(request: Request, call_next):
+    global _worker_request_seen
+    first_request = not _worker_request_seen
+    _worker_request_seen = True
     started = time.monotonic()
-    response = await call_next(request)
-    route = getattr(request.scope.get('route'), 'path', 'unmatched')
-    logging.getLogger('spoken.http').log(
-        logging.WARNING if response.status_code >= 400 else logging.INFO,
-        'http_result method=%s route=%s status=%s duration_ms=%s instance=%s',
-        request.method, route, response.status_code,
-        round((time.monotonic() - started) * 1000), os.environ.get('WEBSITE_INSTANCE_ID', 'local'))
-    return response
+    timing = StartupTiming() if request.method == 'POST' and request.url.path == '/sessions' else None
+    token = startup_current.set(timing)
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        if timing is not None:
+            with timing.lock:
+                timing.durations['app_total'] = (time.monotonic() - started) * 1000
+            response.headers['Server-Timing'] = timing.header()
+            response.headers['X-Startup-Trace-ID'] = timing.trace
+        return response
+    finally:
+        startup_current.reset(token)
+        route = getattr(request.scope.get('route'), 'path', 'unmatched')
+        logging.getLogger('spoken.http').log(
+            logging.WARNING if status >= 400 else logging.INFO,
+            'http_result method=%s route=%s status=%s duration_ms=%s instance=%s trace=%s worker_first_request=%s',
+            request.method, route, status,
+            round((time.monotonic() - started) * 1000), os.environ.get('WEBSITE_INSTANCE_ID', 'local'),
+            timing.trace if timing else '-', first_request)
 
 
 @app.get("/me")

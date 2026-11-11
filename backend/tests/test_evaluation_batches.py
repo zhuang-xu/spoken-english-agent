@@ -92,7 +92,7 @@ def test_quote_and_span_validation():
         'source_id': 's', 'start_char': 2, 'end_char': 4, 'original': 'go',
         'improved': 'went', 'explanation': 'Past tense.'}])
     batches.validate_findings(result, payload)
-    for change in ({'source_id': 'invented'}, {'start_char': 0}, {'end_char': 999}):
+    for change in ({'source_id': 'invented'}, {'original': 'invented'}):
         invalid = result.model_copy(update={'corrections': [result.corrections[0].model_copy(update=change)]})
         with pytest.raises(ValueError, match='Invalid source'):
             batches.validate_findings(invalid, payload)
@@ -366,3 +366,16 @@ def test_synthesis_uses_same_work_budget_and_retains_transcript(ready_speech_eva
     assert api.post(url).status_code == 201
     with sqlite3.connect(settings.database_path) as db:
         assert db.execute('SELECT calls FROM evaluation_batch_plans').fetchone()[0] == batches.MAX_CALLS
+
+
+def test_unique_quote_offsets_are_resolved_but_ambiguous_quotes_fail():
+    payload = {'sources': [{'source_id': 's', 'text': 'I go yesterday.'}]}
+    result = BatchFindings(observations=[], corrections=[{
+        'source_id': 's', 'start_char': 0, 'end_char': 99, 'original': 'go',
+        'improved': 'went', 'explanation': 'Past tense.'}])
+    batches.validate_findings(result, payload)
+    assert (result.corrections[0].start_char, result.corrections[0].end_char) == (2, 4)
+    payload['sources'][0]['text'] = 'I go, then go again.'
+    result.corrections[0].start_char, result.corrections[0].end_char = 0, 99
+    with pytest.raises(ValueError, match='Invalid source'):
+        batches.validate_findings(result, payload)

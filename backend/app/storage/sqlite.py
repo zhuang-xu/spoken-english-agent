@@ -1,4 +1,5 @@
 """Small SQLite helpers. No repository class is needed for one operation."""
+from app.startup_timing import timed
 import sqlite3
 from app.storage.database import database_connection
 from app.storage.recordings import Recording, ensure_recording_table, register_recording
@@ -81,6 +82,7 @@ def fail_stale_creating_sessions(database_path: str, timeout_seconds: int = 300)
         ).rowcount
 
 
+@timed('reservation')
 def save_creating_session(database_path: str, session: Session, account_id: str,
                           idempotency_key: str | None = None) -> tuple[str, Session] | None:
     with database_connection(database_path) as connection:
@@ -144,6 +146,7 @@ def end_stored_session(database_path: str, session_id: str, account_id: str) -> 
         return "ended", ended_at
 
 
+@timed('activation')
 def update_session(database_path: str, session_id: str, status: str,
                    provider_session_id: str | None = None) -> None:
     with database_connection(database_path) as connection:

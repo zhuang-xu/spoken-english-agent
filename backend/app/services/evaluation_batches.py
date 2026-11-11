@@ -260,9 +260,19 @@ def validate_findings(result, payload):
     for item in result.observations + result.corrections:
         source = sources.get(item.source_id)
         quote = item.quote if hasattr(item, 'quote') else item.original
-        if (not source or item.end_char > len(source['text']) or item.start_char >= item.end_char or
-                source['text'][item.start_char:item.end_char] != quote):
+        if not source:
             raise ValueError('Invalid source evidence')
+        text = source['text']
+        if (item.end_char <= len(text) and item.start_char < item.end_char and
+                text[item.start_char:item.end_char] == quote):
+            continue
+        # Models quote reliably but do not reliably count Unicode characters.
+        # Resolve only an exact, unique quotation; ambiguous or invented evidence
+        # still fails closed. Persist application-derived offsets for downstream use.
+        start = text.find(quote)
+        if start < 0 or text.find(quote, start + 1) >= 0:
+            raise ValueError('Invalid source evidence')
+        item.start_char, item.end_char = start, start + len(quote)
 
 
 def validate_selection(result, payload):
