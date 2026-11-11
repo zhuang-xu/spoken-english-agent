@@ -90,9 +90,10 @@ HTTP receipts/errors. `store_learner_input()` uses a SQLite transaction with an
 immediate write lock to prevent concurrent uploads from losing components or
 creating duplicates. A failure rolls back the entire component write.
 
-The additive `learner_turns` table stores audio bytes and transcript JSON in one
-row per `(session_id, turn_id)`, with separate receipt timestamps. No external
-provider is called by the storage transaction. Audio capture then calls
+The `learner_turns` table stores transcript JSON and audio receipt metadata per
+`(session_id, turn_id)`. With object storage enabled, `learner_recordings` stores the
+immutable Blob reference, size and hash. Existing inline bytes remain readable.
+Audio capture then calls
 `assess_uploaded_audio()` synchronously through `backend/app/services/learner_inputs.py`;
 transcript capture does not call a provider. Uploads preserve session status and
 refresh activity only while active. Audio is bounded

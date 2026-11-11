@@ -1,6 +1,7 @@
 """Small SQLite helpers. No repository class is needed for one operation."""
 import sqlite3
 from app.storage.database import database_connection
+from app.storage.recordings import Recording, ensure_recording_table, register_recording
 from datetime import datetime, timedelta, timezone
 
 from app.schemas import Session, SessionCreate
@@ -157,25 +158,49 @@ def update_session(database_path: str, session_id: str, status: str,
             touch_activity(connection, session_id)
 
 
+def learner_session_outcome(connection, session_id, account_id):
+    if not migrate_session_lifecycle(connection):
+        return 'not_found'
+    session = connection.execute(
+        'SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?',
+        (session_id, account_id),
+    ).fetchone()
+    if session is None:
+        return 'not_found'
+    if session[0] not in ('active', 'ended'):
+        return 'inactive'
+    return 'ok'
+
+
 def store_learner_input(database_path: str, session_id: str, turn_id: str,
                         component: str, payload: bytes | str, account_id: str,
-                        media_type: str | None = None) -> tuple[str, bool, bool]:
+                        media_type: str | None = None, *, recording_store=None) -> tuple[str, bool, bool]:
     """Atomically store an immutable component or acknowledge an identical retry."""
     from datetime import datetime, timezone
 
     if component not in ("audio", "transcript"):
         raise ValueError("Unknown input component")
+    recording = Recording.for_upload(session_id, turn_id, payload, media_type) if component == 'audio' else None
+    if recording_store is not None:
+        with database_connection(database_path) as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            outcome = learner_session_outcome(connection, session_id, account_id)
+            if outcome != 'ok':
+                return outcome, False, False
+            ensure_recording_table(connection)
+            known = connection.execute('SELECT 1 FROM learner_recordings WHERE session_id=? AND turn_id=?',
+                                       (session_id, turn_id)).fetchone()
+            if not known and connection.execute("SELECT 1 FROM sqlite_master WHERE name='learner_turns'").fetchone():
+                known = connection.execute('SELECT 1 FROM learner_turns WHERE session_id=? AND turn_id=? '
+                                           'AND audio IS NOT NULL', (session_id, turn_id)).fetchone()
+        if not known:
+            recording_store.put(recording, payload)
+
     with database_connection(database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if not migrate_session_lifecycle(connection):
-            return "not_found", False, False
-        session = connection.execute(
-            "SELECT status FROM practice_sessions WHERE id = ? AND owner_account_id=?", (session_id, account_id)
-        ).fetchone()
-        if session is None:
-            return "not_found", False, False
-        if session[0] not in ("active", "ended"):
-            return "inactive", False, False
+        outcome = learner_session_outcome(connection, session_id, account_id)
+        if outcome != 'ok':
+            return outcome, False, False
         connection.execute("""
             CREATE TABLE IF NOT EXISTS learner_turns (
                 session_id TEXT NOT NULL,
@@ -193,22 +218,35 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
             "INSERT OR IGNORE INTO learner_turns (session_id, turn_id) VALUES (?, ?)",
             (session_id, turn_id),
         )
-        row = connection.execute(
-            "SELECT audio, media_type, transcript FROM learner_turns WHERE session_id=? AND turn_id=?",
+        ensure_recording_table(connection)
+        audio, saved_type, transcript, object_key, digest, size = connection.execute(
+            '''SELECT t.audio, t.media_type, t.transcript, r.object_key, r.sha256, r.size_bytes
+            FROM learner_turns t LEFT JOIN learner_recordings r USING (session_id, turn_id)
+            WHERE t.session_id=? AND t.turn_id=?''',
             (session_id, turn_id),
         ).fetchone()
-        existing = row[0] if component == "audio" else row[2]
-        if existing is not None:
-            same = existing == payload and (component != "audio" or row[1] == media_type)
+        audio_received = object_key is not None or audio is not None
+        transcript_received = transcript is not None
+        component_received = audio_received if component == 'audio' else transcript_received
+        if component_received:
+            if component == 'audio':
+                same = saved_type == media_type and (
+                    (digest, size) == (recording.sha256, recording.size) if object_key else audio == payload)
+            else:
+                same = transcript == payload
             if same:
                 touch_activity(connection, session_id)
-            return ("exists" if same else "conflict"), row[0] is not None, row[2] is not None
+            return ("exists" if same else "conflict"), audio_received, transcript_received
         received_at = datetime.now(timezone.utc).isoformat()
         if component == "audio":
+            if recording_store is not None:
+                # Serialize verification and registration with orphan deletion. The upload itself is outside the lock.
+                recording_store.verify(recording)
+                register_recording(connection, session_id, turn_id, recording)
             connection.execute(
                 "UPDATE learner_turns SET audio=?, media_type=?, audio_received_at=? "
                 "WHERE session_id=? AND turn_id=?",
-                (payload, media_type, received_at, session_id, turn_id),
+                (None if recording_store is not None else payload, media_type, received_at, session_id, turn_id),
             )
         else:
             connection.execute(
@@ -217,7 +255,7 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
                 (payload, received_at, session_id, turn_id),
             )
         touch_activity(connection, session_id)
-        return "created", component == "audio" or row[0] is not None, component == "transcript" or row[2] is not None
+        return "created", component == "audio" or audio_received, component == "transcript" or transcript_received
 
 
 def store_agent_transcript(database_path: str, session_id: str, item_id: str,

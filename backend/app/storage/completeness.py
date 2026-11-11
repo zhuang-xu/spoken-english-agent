@@ -1,6 +1,7 @@
 """Compare a declared final upload inventory with a consistent snapshot of stored data."""
 import sqlite3
 from app.storage.database import database_connection
+from app.storage.recordings import ensure_recording_table
 
 from app.schemas import SessionDataStatus, UploadInventory, UploadManifest
 from app.storage.sqlite import migrate_session_lifecycle
@@ -44,8 +45,11 @@ def data_status_on_connection(connection, session_id, status, saved):
     actual = (set(), set(), set())
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if 'learner_turns' in tables:
+        ensure_recording_table(connection)
         for turn, audio, transcript in connection.execute(
-            'SELECT turn_id, audio IS NOT NULL, transcript IS NOT NULL FROM learner_turns WHERE session_id=?',
+            '''SELECT t.turn_id, t.audio IS NOT NULL OR r.object_key IS NOT NULL, t.transcript IS NOT NULL
+            FROM learner_turns t LEFT JOIN learner_recordings r USING (session_id, turn_id)
+            WHERE t.session_id=?''',
             (session_id,),
         ):
             if audio:

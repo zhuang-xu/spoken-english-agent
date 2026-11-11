@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.config import Settings
 from app.schemas import LearnerInputReceipt
 from app.storage.sqlite import store_learner_input
+from app.storage.recordings import RecordingStore
 from app.services.pronunciation import assess_uploaded_audio
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
@@ -16,8 +17,11 @@ def capture_input(settings: Settings, session_id: str, turn_id: str, component: 
                   payload: bytes | str, account_id: str, media_type: str | None = None
                   ) -> tuple[LearnerInputReceipt, int]:
     try:
+        recording_store = (RecordingStore(settings)
+                           if component == 'audio' and settings.recordings_blob_container else None)
         outcome, audio_received, transcript_received = store_learner_input(
-            settings.database_path, session_id, turn_id, component, payload, account_id, media_type
+            settings.database_path, session_id, turn_id, component, payload, account_id, media_type,
+            recording_store=recording_store,
         )
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Learner input storage is unavailable.") from None

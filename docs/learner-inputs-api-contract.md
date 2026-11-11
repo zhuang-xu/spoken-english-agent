@@ -1,6 +1,12 @@
 # Learner evaluation input capture contract
 
-Prerequisite: an active session created using the
+**Status** — Audio and transcript uploads are implemented with account ownership
+checks, retry receipts, and upload-time Speech assessment. Optional Blob-backed
+recording writes were enabled in the private hosted deployment on November 11,
+2026. Existing SQLite recordings remain readable. See the
+[release record](releases/release-2026-11-11.md).
+
+Prerequisite: an active or ended session created using the
 [session-start contract](sessions-api-contract.md).
 
 Scope: receive learner recordings and finalized learner transcripts from the client,
@@ -20,9 +26,10 @@ and start the context-free pronunciation/fluency assessment when audio arrives.
   integers relative to the client session recording clock; end must exceed start),
   and optional `provider_item_id` (trimmed, 1–200 characters). Extra fields, including
   a speaker field, are rejected. This route only represents learner speech.
-- Components may arrive in either order. SQLite stores audio BLOB, MIME type,
-  canonical transcript JSON, and separate server receipt timestamps in one row
-  keyed by session and turn. Client timestamps establish order, not arrival time.
+- Components may arrive in either order. SQLite stores canonical transcript JSON,
+  audio MIME type and separate server receipt timestamps keyed by session and turn.
+  Audio bytes live in SQLite or in a private Blob with a committed SQLite reference.
+  Client timestamps establish order, not arrival time.
 - New components return 201; identical normalized retries return 200. Different
   content for an already stored component returns 409 without overwriting it.
   Writes and retry checks are transactional. Neither upload changes session status.
@@ -30,16 +37,18 @@ and start the context-free pronunciation/fluency assessment when audio arrives.
   Both flags true means inputs were received. Assessment results are returned with
   the final session evaluation rather than the upload receipt.
   Responses have Cache-Control: no-store and never echo recording or transcript.
-- Unknown sessions return 404, non-active sessions 409, invalid UUIDs/input 422,
+- Unknown, unowned, or other-account sessions return 404. Sessions in a state other
+  than active or ended return 409. Invalid UUIDs or input return 422,
   unsupported content types 415, and storage failures 503 with generic detail.
   With Speech configured, invalid audio returns 422 after durable capture; Speech
   provider failure is saved as unavailable without failing the upload. A fresh
   database with no sessions returns 404.
-- Hosted requests inherit Azure function-key protection. Local routes have no user
-  authentication; ownership checks, retention/deletion, per-session storage quotas,
-  durable cloud storage, and audio download/list endpoints remain deferred.
-- SQLite is local-development storage. Audio increases database size; do not rely
-  on the hosted temporary SQLite path for retaining recordings across instances.
+- Uploads require a verified account and enforce session ownership. Retention and
+  deletion, aggregate per-session storage quotas, and audio download and list
+  endpoints remain open. See the [account isolation contract](account-isolation-api-contract.md).
+- Local development uses a SQLite file. The private hosted deployment shares a
+  Blob-backed SQLite snapshot across instances. Audio increases the size of the
+  snapshot when kept inline. See the [hosted storage contract](hosted-storage-api-contract.md).
 
 ## Capture acceptance and test mapping
 
@@ -52,8 +61,8 @@ and isolation between sessions sharing a turn ID.
 Verified locally on 2026-09-08 using Python 3.11.6: 62 tests passed, including
 21 learner-input tests; one existing Starlette/AnyIO deprecation warning.
 `git diff --check` passed. No live transcription, browser recording, or Azure
-upload check was performed for this feature. This increment is not deployed or
-published to GitHub.
+upload check was performed at this local verification stage. The hosted checks
+follow below.
 
 
 ## Azure release verification — 2026-09-08

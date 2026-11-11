@@ -1,19 +1,27 @@
 """Retrieve immutable audio and cache normalized assessments without holding HTTP locks."""
 from app.storage.database import database_connection
+from app.storage.recordings import Recording, ensure_recording_table
 import hashlib
 import sqlite3
 from app.schemas import SpeechAssessment
 
 
-def load_audio(database_path, session_id, reference):
+def load_audio(database_path, session_id, reference, *, recording_store=None):
     with database_connection(database_path) as db:
-        row = db.execute('SELECT audio, media_type FROM learner_turns WHERE session_id=? AND turn_id=?',
-                         (session_id, reference['turn_id'])).fetchone()
-    if (row is None or row[0] is None or row[1] != reference['media_type']
-            or len(row[0]) != reference['size_bytes']
-            or hashlib.sha256(row[0]).hexdigest() != reference['sha256']):
-        raise sqlite3.DatabaseError('Audio no longer matches the evaluation snapshot')
-    return row[0]
+        ensure_recording_table(db)
+        row = db.execute('''SELECT t.audio, t.media_type, r.object_key, r.sha256, r.size_bytes
+            FROM learner_turns t LEFT JOIN learner_recordings r USING (session_id, turn_id)
+            WHERE t.session_id=? AND t.turn_id=?''', (session_id, reference['turn_id'])).fetchone()
+    if row is not None and row[1] == reference['media_type']:
+        audio, _, key, digest, size = row
+        if key and (digest, size) == (reference['sha256'], reference['size_bytes']):
+            if recording_store is None:
+                raise sqlite3.OperationalError('Recording object storage is not configured.')
+            return recording_store.read(Recording(key, digest, size))
+        if key is None and audio is not None and len(audio) == reference['size_bytes'] and (
+                hashlib.sha256(audio).hexdigest() == reference['sha256']):
+            return audio
+    raise sqlite3.DatabaseError('Audio no longer matches the evaluation snapshot')
 
 
 def speech_cache(database_path, session_id, reference, assessment=None):

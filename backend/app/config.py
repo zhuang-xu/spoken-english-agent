@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Spoken English Agent"
     database_path: str = "./data/spoken_agents.sqlite3"
+    recordings_blob_container: str = ""
+    recordings_blob_connection_string: SecretStr = SecretStr("")
     azure_openai_endpoint: str = ""
     azure_openai_api_key: SecretStr = SecretStr("")
     azure_openai_deployment: str = ""

@@ -79,11 +79,15 @@ def evaluation_record(database_path, session_id, account_id, deployment=None):
                           for item, index, transcript in db.execute(
                               'SELECT item_id, content_index, transcript FROM agent_transcripts '
                               'WHERE session_id=? ORDER BY item_id, content_index', (session_id,))]
-            audio_refs = [dict(turn_id=turn, media_type=media, size_bytes=len(audio),
-                               sha256=hashlib.sha256(audio).hexdigest())
-                          for turn, media, audio in db.execute(
-                              'SELECT turn_id, media_type, audio FROM learner_turns '
-                              'WHERE session_id=? AND audio IS NOT NULL ORDER BY turn_id', (session_id,))]
+            audio_refs = [dict(turn_id=turn, media_type=media,
+                               size_bytes=size if digest is not None else len(audio),
+                               sha256=digest if digest is not None else hashlib.sha256(audio).hexdigest())
+                          for turn, media, audio, size, digest in db.execute('''
+                              SELECT t.turn_id, t.media_type,
+                                     CASE WHEN r.object_key IS NULL THEN t.audio END, r.size_bytes, r.sha256
+                              FROM learner_turns t LEFT JOIN learner_recordings r USING (session_id, turn_id)
+                              WHERE t.session_id=? AND (t.audio IS NOT NULL OR r.object_key IS NOT NULL)
+                              ORDER BY t.turn_id''', (session_id,))]
             snapshot = json.dumps({'preferences': json.loads(session[2]),
                                    'manifest': json.loads(session[1]),
                                    'learner_transcripts': learners, 'agent_transcripts': agents,
