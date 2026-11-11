@@ -15,7 +15,7 @@ from app.storage.sqlite import end_stored_session, heartbeat_stored_session, sav
 
 def heartbeat_session(session_id: str, settings: Settings, account_id: str) -> HeartbeatResponse:
     try:
-        outcome, last_activity_at = heartbeat_stored_session(settings.database_path, session_id, account_id)
+        outcome, last_activity_at = heartbeat_stored_session(settings.storage_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
     if outcome == "not_found":
@@ -27,7 +27,7 @@ def heartbeat_session(session_id: str, settings: Settings, account_id: str) -> H
 
 def end_session(session_id: str, settings: Settings, account_id: str) -> EndSessionResponse:
     try:
-        outcome, ended_at = end_stored_session(settings.database_path, session_id, account_id)
+        outcome, ended_at = end_stored_session(settings.storage_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
     if outcome == "not_found":
@@ -52,7 +52,7 @@ def create_session(request: SessionCreate, settings: Settings, account_id: str,
 
     session = Session(id=str(uuid4()), created_at=datetime.now(timezone.utc), preferences=request)
     try:
-        reservation = save_creating_session(settings.database_path, session, account_id, idempotency_key)
+        reservation = save_creating_session(settings.storage_path, session, account_id, idempotency_key)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Session storage is unavailable.") from None
 
@@ -69,7 +69,7 @@ def create_session(request: SessionCreate, settings: Settings, account_id: str,
         realtime = create_realtime_session(request, settings)
     except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError) as error:
         try:
-            update_session(settings.database_path, session.id, "failed")
+            update_session(settings.storage_path, session.id, "failed")
         except (sqlite3.Error, OSError):
             raise HTTPException(503, "Session storage is unavailable.") from None
         if isinstance(error, httpx.TimeoutException):
@@ -77,12 +77,12 @@ def create_session(request: SessionCreate, settings: Settings, account_id: str,
         raise HTTPException(502, "Realtime provider could not start the session.") from None
 
     try:
-        update_session(settings.database_path, session.id, "active", realtime.provider_session_id)
+        update_session(settings.storage_path, session.id, "active", realtime.provider_session_id)
     except (sqlite3.Error, OSError):
         # Do not release the credential to the client when activation fails.
         # The unused credential expires after 60 seconds; no WebRTC call exists yet.
         try:
-            update_session(settings.database_path, session.id, "failed")
+            update_session(settings.storage_path, session.id, "failed")
         except (sqlite3.Error, OSError):
             pass  # A storage outage can leave a creating row for later reconciliation.
         raise HTTPException(503, "Session storage is unavailable.") from None

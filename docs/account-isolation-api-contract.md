@@ -25,7 +25,8 @@ The backend applies database-backed fixed-window limits per verified account:
 starts per hour by default. `ACCOUNT_REQUESTS_PER_MINUTE`,
 `ACCOUNT_SESSIONS_PER_HOUR`, and `ACCOUNT_EVALUATIONS_PER_HOUR` tune them. A
 rejected request returns 429 with `Retry-After`; it does not call a provider.
-These limits share the configured SQLite or Blob-backed database across workers.
+Hosted workers share these counters in PostgreSQL. Each request updates its
+applicable counters in one transaction.
 The Azure front end still needs an edge limit for anonymous and invalid-token
 traffic before public use.
 

@@ -14,7 +14,7 @@ from app.storage.evaluations import (evaluation_record, finish_evaluation,
 
 def get_evaluation(settings, session_id, account_id):
     try:
-        outcome, record, _ = evaluation_record(settings.database_path, session_id, account_id)
+        outcome, record, _ = evaluation_record(settings.storage_path, session_id, account_id)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Evaluation storage is unavailable.') from None
     if outcome == 'not_found':
@@ -44,7 +44,7 @@ def run_evaluation(settings, session_id, account_id):
         raise HTTPException(503, 'Azure evaluation is not configured correctly.')
     try:
         outcome, record, snapshot = evaluation_record(
-            settings.database_path, session_id, account_id, settings.azure_openai_evaluation_deployment)
+            settings.storage_path, session_id, account_id, settings.azure_openai_evaluation_deployment)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Evaluation storage is unavailable.') from None
     errors = {'not_found': (404, 'Session not found.'),
@@ -77,12 +77,12 @@ def run_evaluation(settings, session_id, account_id):
                 transcript_result = advance(batch_settings, session_id, source, final=True)
             else:
                 transcript_result = evaluate_snapshot(snapshot, record.deployment, settings)
-            record = save_transcript_evaluation(settings.database_path, record, transcript_result)
+            record = save_transcript_evaluation(settings.storage_path, record, transcript_result)
             if record is None:
                 raise HTTPException(409, 'Evaluation attempt was superseded.')
         except BatchPending as pending:
             try:
-                waiting = wait_for_transcript(settings.database_path, record, pending.total, pending.completed)
+                waiting = wait_for_transcript(settings.storage_path, record, pending.total, pending.completed)
             except (sqlite3.Error, OSError):
                 raise HTTPException(503, 'Evaluation storage is unavailable.') from None
             if waiting is None:
@@ -103,7 +103,7 @@ def run_evaluation(settings, session_id, account_id):
                     504 if isinstance(error, httpx.TimeoutException) else 502)
             try:
                 completed = finish_evaluation(
-                    settings.database_path, record, error_code=failure,
+                    settings.storage_path, record, error_code=failure,
                     failure_stage='transcript')
             except (sqlite3.Error, OSError):
                 raise HTTPException(503, 'Evaluation storage is unavailable.') from None
@@ -115,7 +115,7 @@ def run_evaluation(settings, session_id, account_id):
 
     if incremental_transcript:
         try:
-            waiting = wait_for_transcript(settings.database_path, record,
+            waiting = wait_for_transcript(settings.storage_path, record,
                                           record.transcript_windows_total, record.transcript_windows_total)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Evaluation storage is unavailable.') from None
@@ -134,7 +134,7 @@ def run_evaluation(settings, session_id, account_id):
     if not failure and pending_turn_ids:
         try:
             waiting = wait_for_speech(
-                settings.database_path, record, speech_assessments, speech_summary,
+                settings.storage_path, record, speech_assessments, speech_summary,
                 pending_turn_ids)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Evaluation storage is unavailable.') from None
@@ -171,7 +171,7 @@ def run_evaluation(settings, session_id, account_id):
                     504 if isinstance(error, httpx.TimeoutException) else 502)
     try:
         completed = finish_evaluation(
-            settings.database_path, record, result, failure, speech_assessments,
+            settings.storage_path, record, result, failure, speech_assessments,
             speech_summary)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Evaluation storage is unavailable.') from None

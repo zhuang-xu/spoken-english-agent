@@ -62,9 +62,9 @@ Live conversation and evaluation use separate model deployments: the Voice Agent
 handles immediate spoken interaction, while the Evaluation Agent reviews saved
 evidence after practice. Azure Speech supplies acoustic measurements for that review.
 
-Persistence uses **SQLite** locally and supports lease-protected SQLite snapshots
-in **Azure Blob Storage** for low-volume hosted use. **Azure Functions** hosts the
-API and runs scheduled cleanup for inactive sessions.
+Local development can use **SQLite**. Hosted session data uses **PostgreSQL** and
+recording bytes live in private **Azure Blob Storage**. **Azure Functions** hosts
+the API and runs scheduled cleanup for inactive sessions.
 
 ## Further documentation
 

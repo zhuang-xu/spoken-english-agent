@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Spoken English Agent"
     database_path: str = "./data/spoken_agents.sqlite3"
+    database_url: SecretStr = SecretStr("")
+    database_maintenance: bool = False
     recordings_blob_container: str = ""
     recordings_blob_connection_string: SecretStr = SecretStr("")
     azure_openai_endpoint: str = ""
@@ -31,6 +33,13 @@ class Settings(BaseSettings):
     account_evaluations_per_hour: int = Field(default=20, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def storage_path(self) -> str:
+        url = self.database_url.get_secret_value()
+        if url and not url.startswith(('postgresql://', 'postgres://')):
+            raise ValueError('DATABASE_URL must be a PostgreSQL URI.')
+        return url or self.database_path
 
 
 @lru_cache

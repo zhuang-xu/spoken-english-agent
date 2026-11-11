@@ -7,6 +7,7 @@ import sqlite3
 from azure.core import MatchConditions
 from azure.core.exceptions import AzureError, ResourceExistsError, ResourceModifiedError, ResourceNotFoundError
 from azure.storage.blob import BlobClient, ContainerClient
+from app.storage.database import ensure_sqlite_table
 
 PREFIX = 'learner-recordings/v1/'
 
@@ -82,7 +83,7 @@ class RecordingStore:
 
 
 def ensure_recording_table(connection):
-    connection.execute('''CREATE TABLE IF NOT EXISTS learner_recordings (
+    ensure_sqlite_table(connection, '''CREATE TABLE IF NOT EXISTS learner_recordings (
         session_id TEXT NOT NULL, turn_id TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE,
         sha256 TEXT NOT NULL, size_bytes INTEGER NOT NULL,
         PRIMARY KEY (session_id, turn_id),

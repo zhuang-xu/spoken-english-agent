@@ -26,9 +26,9 @@ and start the context-free pronunciation/fluency assessment when audio arrives.
   integers relative to the client session recording clock; end must exceed start),
   and optional `provider_item_id` (trimmed, 1–200 characters). Extra fields, including
   a speaker field, are rejected. This route only represents learner speech.
-- Components may arrive in either order. SQLite stores canonical transcript JSON,
+- Components may arrive in either order. The database stores canonical transcript JSON,
   audio MIME type and separate server receipt timestamps keyed by session and turn.
-  Audio bytes live in SQLite or in a private Blob with a committed SQLite reference.
+  Hosted audio bytes live in a private Blob with a committed database reference.
   Client timestamps establish order, not arrival time.
 - New components return 201; identical normalized retries return 200. Different
   content for an already stored component returns 409 without overwriting it.
@@ -46,9 +46,9 @@ and start the context-free pronunciation/fluency assessment when audio arrives.
 - Uploads require a verified account and enforce session ownership. Retention and
   deletion, aggregate per-session storage quotas, and audio download and list
   endpoints remain open. See the [account isolation contract](account-isolation-api-contract.md).
-- Local development uses a SQLite file. The private hosted deployment shares a
-  Blob-backed SQLite snapshot across instances. Audio increases the size of the
-  snapshot when kept inline. See the [hosted storage contract](hosted-storage-api-contract.md).
+- Local development can use a SQLite file with inline audio. The hosted PostgreSQL
+  deployment shares recording metadata and transcripts across instances. See the
+  [hosted storage contract](hosted-storage-api-contract.md).
 
 ## Capture acceptance and test mapping
 

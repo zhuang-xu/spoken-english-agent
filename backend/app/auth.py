@@ -16,7 +16,7 @@ import jwt
 from jwt import PyJWKClient
 
 from app.config import Settings, get_settings
-from app.storage.database import database_connection
+from app.storage.database import begin_write, database_connection, ensure_sqlite_table, is_postgres, table_exists
 
 
 @dataclass(frozen=True)
@@ -95,14 +95,15 @@ def _platform_principal(request: Request, settings: Settings) -> Identity:
 @timed('account_lookup')
 def account_for_identity(database_path: str, identity: Identity) -> str:
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        db.execute('''CREATE TABLE IF NOT EXISTS account_identities (
+        begin_write(db)
+        ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS account_identities (
             provider TEXT NOT NULL, tenant_id TEXT NOT NULL, object_id TEXT NOT NULL,
             account_id TEXT NOT NULL UNIQUE,
             PRIMARY KEY (provider, tenant_id, object_id)
         )''')
         key = ('entra', identity.tenant_id, identity.object_id)
-        db.execute('INSERT OR IGNORE INTO account_identities VALUES (?, ?, ?, ?)', (*key, str(uuid4())))
+        db.execute('INSERT INTO account_identities VALUES (?, ?, ?, ?) '
+                   'ON CONFLICT (provider, tenant_id, object_id) DO NOTHING', (*key, str(uuid4())))
         return db.execute('SELECT account_id FROM account_identities WHERE provider=? AND tenant_id=? AND object_id=?', key).fetchone()[0]
 
 
@@ -120,28 +121,32 @@ def enforce_account_limits(database_path: str, account_id: str, *, creating_sess
     if requesting_evaluation:
         quotas.append(('evaluations', 3600, evaluations_per_hour))
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        db.execute('''CREATE TABLE IF NOT EXISTS account_rate_limits (
+        begin_write(db)
+        ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS account_rate_limits (
             account_id TEXT NOT NULL, bucket TEXT NOT NULL, window_start INTEGER NOT NULL,
             count INTEGER NOT NULL, PRIMARY KEY (account_id, bucket, window_start)
         )''')
-        # Expired buckets are safe to discard; each check holds the database write lease.
-        db.execute('DELETE FROM account_rate_limits WHERE window_start < ?', (instant - 7200,))
+        if not is_postgres(db):
+            db.execute('DELETE FROM account_rate_limits WHERE window_start < ?', (instant - 7200,))
         for bucket, seconds, limit in quotas:
             window = instant // seconds * seconds
-            row = db.execute('''SELECT count FROM account_rate_limits
-                WHERE account_id=? AND bucket=? AND window_start=?''', (account_id, bucket, window)).fetchone()
-            if row and row[0] >= limit:
+            changed = db.execute('''INSERT INTO account_rate_limits VALUES (?, ?, ?, 1)
+                ON CONFLICT(account_id, bucket, window_start) DO UPDATE SET count=account_rate_limits.count+1
+                WHERE account_rate_limits.count < ?''', (account_id, bucket, window, limit)).rowcount
+            if not changed:
                 raise HTTPException(429, 'Account request limit reached.',
                                     headers={'Retry-After': str(window + seconds - instant)})
-        for bucket, seconds, _ in quotas:
-            window = instant // seconds * seconds
-            db.execute('''INSERT INTO account_rate_limits VALUES (?, ?, ?, 1)
-                ON CONFLICT(account_id, bucket, window_start) DO UPDATE SET count=count+1''',
-                (account_id, bucket, window))
+
+
+def prune_account_limits(database_path):
+    with database_connection(database_path) as db:
+        if is_postgres(db):
+            db.execute('DELETE FROM account_rate_limits WHERE window_start < ?', (int(time.time()) - 7200,))
 
 
 def current_account(request: Request, settings: Settings = Depends(get_settings)) -> str:
+    if settings.database_maintenance:
+        raise HTTPException(503, 'Database maintenance is in progress.', headers={'Retry-After': '60'})
     authorization = request.headers.get('authorization', '')
     if authorization:
         scheme, _, token = authorization.partition(' ')
@@ -151,7 +156,7 @@ def current_account(request: Request, settings: Settings = Depends(get_settings)
     else:
         identity = _platform_principal(request, settings)
     try:
-        account_id = account_for_identity(settings.database_path, identity)
+        account_id = account_for_identity(settings.storage_path, identity)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Account storage is unavailable.') from None
     expected = request.headers.get('x-expected-account-id')
@@ -164,13 +169,13 @@ def current_account(request: Request, settings: Settings = Depends(get_settings)
         # billable session evaluation. The general request quota still applies.
         if requesting_evaluation:
             sid = request.path_params.get('session_id')
-            with database_connection(settings.database_path) as db:
-                if db.execute("SELECT 1 FROM sqlite_master WHERE name='session_evaluations'").fetchone():
+            with database_connection(settings.storage_path) as db:
+                if table_exists(db, 'session_evaluations'):
                     requesting_evaluation = not bool(db.execute(
                         'SELECT 1 FROM session_evaluations e JOIN practice_sessions s ON s.id=e.session_id '
                         'WHERE e.session_id=? AND s.owner_account_id=?', (str(sid), account_id)).fetchone())
         enforce_account_limits(
-            settings.database_path, account_id,
+            settings.storage_path, account_id,
             creating_session=request.method == 'POST' and request.url.path == '/sessions',
             requesting_evaluation=requesting_evaluation,
             requests_per_minute=settings.account_requests_per_minute,

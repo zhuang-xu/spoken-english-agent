@@ -8,19 +8,15 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 
 from app.config import get_settings
-from app.storage.database import database_connection
-from app.storage.recordings import Recording, RecordingStore, ensure_recording_table, register_recording
-
-
-def has_learner_turns(db):
-    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='learner_turns'").fetchone() is not None
+from app.storage.database import begin_write, database_connection, is_postgres, lock_rows, table_exists
+from app.storage.recordings import PREFIX, Recording, RecordingStore, ensure_recording_table, register_recording
 
 
 def backfill(database_path, store, limit):
     migrated = 0
     for _ in range(limit):
         with database_connection(database_path) as db:
-            if not has_learner_turns(db):
+            if not table_exists(db, 'learner_turns'):
                 break
             row = db.execute('''SELECT session_id, turn_id, media_type, audio FROM learner_turns
                 WHERE audio IS NOT NULL ORDER BY session_id, turn_id LIMIT 1''').fetchone()
@@ -31,7 +27,8 @@ def backfill(database_path, store, limit):
         store.put(recording, audio)
         store.read(recording)  # Verify remote bytes before clearing the original copy.
         with database_connection(database_path) as db:
-            db.execute('BEGIN IMMEDIATE')
+            begin_write(db)
+            lock_rows(db, 'SELECT id FROM practice_sessions WHERE id=?', (session_id,)).fetchone()
             current = db.execute('SELECT media_type, audio FROM learner_turns WHERE session_id=? AND turn_id=?',
                                  (session_id, turn_id)).fetchone()
             if current != (media_type, audio):
@@ -46,7 +43,9 @@ def backfill(database_path, store, limit):
 
 def compact(database_path):
     with database_connection(database_path) as db:
-        if has_learner_turns(db) and db.execute('SELECT 1 FROM learner_turns WHERE audio IS NOT NULL LIMIT 1').fetchone():
+        if is_postgres(db):
+            raise sqlite3.OperationalError('The compact command is for SQLite snapshots.')
+        if table_exists(db, 'learner_turns') and db.execute('SELECT 1 FROM learner_turns WHERE audio IS NOT NULL LIMIT 1').fetchone():
             raise sqlite3.OperationalError('Finish backfilling legacy recordings before compaction.')
         db.execute('VACUUM')
         if db.execute('PRAGMA quick_check').fetchall() != [('ok',)]:
@@ -57,14 +56,18 @@ def sweep(database_path, store, cutoff, *, apply=False):
     count = 0
     # Most old objects are referenced. Read the index once and recheck candidates under the write lock.
     with database_connection(database_path) as db:
-        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='learner_recordings'").fetchone():
+        if not table_exists(db, 'learner_recordings'):
             raise sqlite3.OperationalError('Recording references have not been initialized in this database.')
         referenced = {row[0] for row in db.execute('SELECT object_key FROM learner_recordings')}
     for candidate in store.candidates(cutoff):
         if candidate.name in referenced:
             continue
+        session_id, separator, _ = candidate.name.removeprefix(PREFIX).partition('/')
+        if not candidate.name.startswith(PREFIX) or not separator:
+            continue
         with database_connection(database_path) as db:
-            db.execute('BEGIN IMMEDIATE')
+            begin_write(db)
+            lock_rows(db, 'SELECT id FROM practice_sessions WHERE id=?', (session_id,)).fetchone()
             if not db.execute('SELECT 1 FROM learner_recordings WHERE object_key=?', (candidate.name,)).fetchone():
                 count += store.delete_candidate(candidate) if apply else 1
     return count
@@ -83,13 +86,13 @@ def main():
     if args.command == 'backfill':
         if args.limit < 1:
             parser.error('--limit must be positive')
-        print(f'Migrated {backfill(settings.database_path, RecordingStore(settings), args.limit)} recordings.')
+        print(f'Migrated {backfill(settings.storage_path, RecordingStore(settings), args.limit)} recordings.')
     elif args.command == 'compact':
-        compact(settings.database_path)
+        compact(settings.storage_path)
         print('Compacted SQLite and verified integrity.')
     else:
         cutoff = datetime.now(timezone.utc) - timedelta(days=1)
-        count = sweep(settings.database_path, RecordingStore(settings), cutoff, apply=args.apply)
+        count = sweep(settings.storage_path, RecordingStore(settings), cutoff, apply=args.apply)
         print(f'{"Removed" if args.apply else "Found"} {count} orphan objects.')
 
 

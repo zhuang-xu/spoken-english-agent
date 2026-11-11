@@ -1,7 +1,8 @@
 """Small SQLite helpers. No repository class is needed for one operation."""
 from app.startup_timing import timed
 import sqlite3
-from app.storage.database import database_connection
+from app.storage.database import (begin_write, database_connection, ensure_sqlite_table,
+                                  is_postgres, lock_rows, table_exists)
 from app.storage.recordings import Recording, ensure_recording_table, register_recording
 from datetime import datetime, timedelta, timezone
 
@@ -10,9 +11,9 @@ from app.schemas import Session, SessionCreate
 
 def migrate_session_lifecycle(connection: sqlite3.Connection) -> bool:
     """Called under an immediate transaction so concurrent migrations serialize."""
-    if not connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='practice_sessions'"
-    ).fetchone():
+    if is_postgres(connection):
+        return True  # PostgreSQL schema migrations run before deployment.
+    if not table_exists(connection, 'practice_sessions'):
         return False
     columns = {row[1] for row in connection.execute("PRAGMA table_info(practice_sessions)")}
     for column in ("ended_at", "last_activity_at", "end_reason", "idempotency_key", "upload_manifest", "owner_account_id"):
@@ -38,10 +39,11 @@ def touch_activity(connection: sqlite3.Connection, session_id: str) -> str:
 
 def heartbeat_stored_session(database_path: str, session_id: str, account_id: str) -> tuple[str, str | None]:
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return "not_found", None
-        row = connection.execute("SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)).fetchone()
+        row = lock_rows(connection, 'SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?',
+                        (session_id, account_id)).fetchone()
         if row is None:
             return "not_found", None
         if row[0] != "active":
@@ -54,14 +56,16 @@ def expire_inactive_sessions(database_path: str, timeout_seconds: int = 300) -> 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return 0
         now = datetime.now(timezone.utc)
         cutoff = (now - timedelta(seconds=timeout_seconds)).isoformat()
+        age = ('CAST(last_activity_at AS timestamptz) <= CAST(? AS timestamptz)' if is_postgres(connection)
+               else 'julianday(last_activity_at) <= julianday(?)')
         return connection.execute(
             "UPDATE practice_sessions SET status='ended', ended_at=?, end_reason='inactivity_timeout' "
-            "WHERE status='active' AND julianday(last_activity_at) <= julianday(?)",
+            "WHERE status='active' AND " + age,
             (now.isoformat(), cutoff),
         ).rowcount
 
@@ -71,13 +75,15 @@ def fail_stale_creating_sessions(database_path: str, timeout_seconds: int = 300)
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return 0
         now = datetime.now(timezone.utc)
+        age = ('CAST(created_at AS timestamptz) <= CAST(? AS timestamptz)' if is_postgres(connection)
+               else 'julianday(created_at) <= julianday(?)')
         return connection.execute(
             "UPDATE practice_sessions SET status='failed', ended_at=?, end_reason='creation_timeout' "
-            "WHERE status='creating' AND julianday(created_at) <= julianday(?)",
+            "WHERE status='creating' AND " + age,
             (now.isoformat(), (now - timedelta(seconds=timeout_seconds)).isoformat()),
         ).rowcount
 
@@ -86,8 +92,8 @@ def fail_stale_creating_sessions(database_path: str, timeout_seconds: int = 300)
 def save_creating_session(database_path: str, session: Session, account_id: str,
                           idempotency_key: str | None = None) -> tuple[str, Session] | None:
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        connection.execute("""
+        begin_write(connection)
+        ensure_sqlite_table(connection, """
             CREATE TABLE IF NOT EXISTS practice_sessions (
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
@@ -97,6 +103,15 @@ def save_creating_session(database_path: str, session: Session, account_id: str,
             )
         """)
         migrate_session_lifecycle(connection)
+        inserted = connection.execute(
+            "INSERT INTO practice_sessions "
+            "(id, status, created_at, preferences, provider_session_id, last_activity_at, idempotency_key, owner_account_id) "
+            "VALUES (?, 'creating', ?, ?, NULL, ?, ?, ?) ON CONFLICT DO NOTHING",
+            (session.id, session.created_at.isoformat(), session.preferences.model_dump_json(),
+             session.created_at.isoformat(), idempotency_key, account_id),
+        ).rowcount
+        if inserted:
+            return None
         if idempotency_key is not None:
             row = connection.execute(
                 "SELECT id, status, created_at, preferences FROM practice_sessions "
@@ -107,14 +122,7 @@ def save_creating_session(database_path: str, session: Session, account_id: str,
                 previous = Session(id=row[0], status=row[1], created_at=row[2],
                                    preferences=SessionCreate.model_validate_json(row[3]))
                 return ("replay" if previous.preferences == session.preferences else "conflict"), previous
-        connection.execute(
-            "INSERT INTO practice_sessions "
-            "(id, status, created_at, preferences, provider_session_id, last_activity_at, idempotency_key, owner_account_id) "
-            "VALUES (?, 'creating', ?, ?, NULL, ?, ?, ?)",
-            (session.id, session.created_at.isoformat(), session.preferences.model_dump_json(),
-             session.created_at.isoformat(), idempotency_key, account_id),
-        )
-        return None
+        raise sqlite3.DatabaseError('Session ID already exists.')
 
 
 def end_stored_session(database_path: str, session_id: str, account_id: str) -> tuple[str, str | None]:
@@ -122,10 +130,10 @@ def end_stored_session(database_path: str, session_id: str, account_id: str) -> 
     from datetime import datetime, timezone
 
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return "not_found", None
-        row = connection.execute(
+        row = lock_rows(connection,
             "SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()
         if row is None:
@@ -150,7 +158,7 @@ def end_stored_session(database_path: str, session_id: str, account_id: str) -> 
 def update_session(database_path: str, session_id: str, status: str,
                    provider_session_id: str | None = None) -> None:
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         cursor = connection.execute(
             "UPDATE practice_sessions SET status = ?, provider_session_id = ? WHERE id = ? AND status='creating'",
             (status, provider_session_id, session_id),
@@ -164,7 +172,7 @@ def update_session(database_path: str, session_id: str, status: str,
 def learner_session_outcome(connection, session_id, account_id):
     if not migrate_session_lifecycle(connection):
         return 'not_found'
-    session = connection.execute(
+    session = lock_rows(connection,
         'SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?',
         (session_id, account_id),
     ).fetchone()
@@ -186,25 +194,25 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
     recording = Recording.for_upload(session_id, turn_id, payload, media_type) if component == 'audio' else None
     if recording_store is not None:
         with database_connection(database_path) as connection:
-            connection.execute('BEGIN IMMEDIATE')
+            begin_write(connection)
             outcome = learner_session_outcome(connection, session_id, account_id)
             if outcome != 'ok':
                 return outcome, False, False
             ensure_recording_table(connection)
             known = connection.execute('SELECT 1 FROM learner_recordings WHERE session_id=? AND turn_id=?',
                                        (session_id, turn_id)).fetchone()
-            if not known and connection.execute("SELECT 1 FROM sqlite_master WHERE name='learner_turns'").fetchone():
+            if not known and table_exists(connection, 'learner_turns'):
                 known = connection.execute('SELECT 1 FROM learner_turns WHERE session_id=? AND turn_id=? '
                                            'AND audio IS NOT NULL', (session_id, turn_id)).fetchone()
         if not known:
             recording_store.put(recording, payload)
 
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         outcome = learner_session_outcome(connection, session_id, account_id)
         if outcome != 'ok':
             return outcome, False, False
-        connection.execute("""
+        ensure_sqlite_table(connection, """
             CREATE TABLE IF NOT EXISTS learner_turns (
                 session_id TEXT NOT NULL,
                 turn_id TEXT NOT NULL,
@@ -218,7 +226,7 @@ def store_learner_input(database_path: str, session_id: str, turn_id: str,
             )
         """)
         connection.execute(
-            "INSERT OR IGNORE INTO learner_turns (session_id, turn_id) VALUES (?, ?)",
+            "INSERT INTO learner_turns (session_id, turn_id) VALUES (?, ?) ON CONFLICT (session_id, turn_id) DO NOTHING",
             (session_id, turn_id),
         )
         ensure_recording_table(connection)
@@ -267,17 +275,17 @@ def store_agent_transcript(database_path: str, session_id: str, item_id: str,
     from datetime import datetime, timezone
 
     with database_connection(database_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return "not_found"
-        session = connection.execute(
+        session = lock_rows(connection,
             "SELECT status FROM practice_sessions WHERE id=? AND owner_account_id=?", (session_id, account_id)
         ).fetchone()
         if session is None:
             return "not_found"
         if session[0] not in ("active", "ended"):
             return "inactive"
-        connection.execute("""
+        ensure_sqlite_table(connection, """
             CREATE TABLE IF NOT EXISTS agent_transcripts (
                 session_id TEXT NOT NULL,
                 item_id TEXT NOT NULL,

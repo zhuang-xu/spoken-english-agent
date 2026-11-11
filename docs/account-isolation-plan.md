@@ -47,7 +47,7 @@ Today Azure platform Microsoft sign-in protects the hosted browser and supplies 
 
 ## Release and rollback
 
-Deploy the backend migration and enforcement before enabling additional users or the native client. Keep existing public traffic behind Azure platform authentication during rollout. Verify the configured tenant, audience, scope, allowed clients, and identity-header trust boundary in the actual hosted deployment. Add account-aware rate limits before public access. The Blob snapshot store is durable for the current private low-volume service; assess a database service before promising high-volume multi-user operation.
+Keep hosted traffic behind Azure platform authentication. Verify the configured tenant, audience, scope, allowed clients, and identity-header trust boundary in the actual hosted deployment. Account quotas are implemented, and hosted account records and quota counters now use PostgreSQL. Edge throttling and hosted two-account verification remain rollout checks. See the [account isolation contract](account-isolation-api-contract.md) and [PostgreSQL cutover](releases/release-2026-11-11-postgres.md).
 
 Roll back client exposure if any account-boundary test fails. Do not fall back to a shared or anonymous account, and do not disable ownership checks to recover access. Preserve unowned historical rows for an explicit administrative decision. Record deployment IDs, test accounts, denied cross-account requests, and any data migration in a release verification note.
 

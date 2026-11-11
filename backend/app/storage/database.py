@@ -1,8 +1,8 @@
-"""SQLite locally; lease-protected Azure Blob snapshots for the private hosted app.
+"""Local SQLite, lease-protected Blob snapshots, and pooled PostgreSQL.
 
 Each transaction downloads the latest database and publishes its committed state
 before returning. Azure leases fence writers across processes and host restarts.
-This serializes database operations and is intended for small, private deployments.
+The snapshot path serializes database operations. PostgreSQL uses row-level locks.
 """
 from app.startup_timing import stage
 from contextlib import contextmanager, closing
@@ -15,8 +15,37 @@ import time
 from urllib.parse import urlparse
 
 
+def is_postgres(connection):
+    return getattr(connection, 'postgresql', False) is True
+
+
+def begin_write(connection):
+    if not is_postgres(connection):
+        connection.execute('BEGIN IMMEDIATE')
+
+
+def lock_rows(connection, query, parameters):
+    return connection.execute(query + (' FOR UPDATE' if is_postgres(connection) else ''), parameters)
+
+
+def table_exists(connection, name):
+    if is_postgres(connection):
+        return connection.execute('SELECT to_regclass(?) IS NOT NULL', (name,)).fetchone()[0]
+    return connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
+def ensure_sqlite_table(connection, ddl):
+    if not is_postgres(connection):
+        connection.execute(ddl)
+
+
 @contextmanager
 def database_connection(database_path):
+    if str(database_path).startswith(('postgresql://', 'postgres://')):
+        from app.storage.postgres import postgres_connection
+        with postgres_connection(database_path) as connection:
+            yield connection
+        return
     if not str(database_path).startswith('azureblob://'):
         Path(database_path).parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(database_path)) as connection, connection:

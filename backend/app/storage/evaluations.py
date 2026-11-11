@@ -1,5 +1,5 @@
 """Atomic evaluation reservations with immutable inputs and fenced retries."""
-from app.storage.database import database_connection
+from app.storage.database import begin_write, database_connection, ensure_sqlite_table, lock_rows, table_exists
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -34,19 +34,19 @@ def conversation_context(learners, agents):
 def evaluation_record(database_path, session_id, account_id, deployment=None):
     """Read a record, or reserve an attempt when deployment is supplied."""
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
+        begin_write(db)
         if not migrate_session_lifecycle(db):
             return 'not_found', None, None
-        session = db.execute(
+        session = lock_rows(db,
             'SELECT status, upload_manifest, preferences FROM practice_sessions WHERE id=? AND owner_account_id=?',
             (session_id, account_id),
         ).fetchone()
         if session is None:
             return 'not_found', None, None
-        db.execute('''CREATE TABLE IF NOT EXISTS session_evaluations (
+        ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS session_evaluations (
             session_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, record TEXT NOT NULL
         )''')
-        row = db.execute('SELECT snapshot, record FROM session_evaluations WHERE session_id=?',
+        row = lock_rows(db, 'SELECT snapshot, record FROM session_evaluations WHERE session_id=?',
                          (session_id,)).fetchone()
         now = datetime.now(timezone.utc)
         if row:
@@ -72,9 +72,8 @@ def evaluation_record(database_path, session_id, account_id, deployment=None):
                 'SELECT turn_id, transcript FROM learner_turns WHERE session_id=? AND transcript IS NOT NULL',
                 (session_id,))]
             learners.sort(key=lambda item: (item['start_ms'], item['turn_id']))
-            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             agents = []
-            if 'agent_transcripts' in tables:
+            if table_exists(db, 'agent_transcripts'):
                 agents = [dict(item_id=item, content_index=index, **json.loads(transcript))
                           for item, index, transcript in db.execute(
                               'SELECT item_id, content_index, transcript FROM agent_transcripts '
@@ -98,7 +97,7 @@ def evaluation_record(database_path, session_id, account_id, deployment=None):
                                if k != 'conversation_context'}, sort_keys=True,
                               ensure_ascii=False).encode()) > MAX_SNAPSHOT_BYTES:
                 return 'too_large', None, None
-            if 'evaluation_batch_plans' in tables:
+            if table_exists(db, 'evaluation_batch_plans'):
                 plan = db.execute('SELECT config FROM evaluation_batch_plans WHERE session_id=?',
                                   (session_id,)).fetchone()
                 if plan:
@@ -110,7 +109,8 @@ def evaluation_record(database_path, session_id, account_id, deployment=None):
                 transcript_status='running',
                 speech_status='pending' if audio_refs else 'not_assessed', final_status='pending',
             )
-        db.execute('INSERT OR REPLACE INTO session_evaluations VALUES (?, ?, ?)',
+        db.execute('INSERT INTO session_evaluations VALUES (?, ?, ?) '
+                   'ON CONFLICT (session_id) DO UPDATE SET record=excluded.record',
                    (session_id, snapshot, record.model_dump_json()))
         return 'reserved', record, snapshot
 
@@ -118,8 +118,8 @@ def evaluation_record(database_path, session_id, account_id, deployment=None):
 def save_transcript_evaluation(database_path, record, transcript_result):
     """Fence and persist the reusable transcript branch before final synthesis."""
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+        begin_write(db)
+        row = lock_rows(db, 'SELECT record FROM session_evaluations WHERE session_id=?',
                          (record.session_id,)).fetchone()
         current = EvaluationResponse.model_validate_json(row[0]) if row else None
         if current is None or current.attempt_id != record.attempt_id or current.status != 'running':
@@ -135,8 +135,8 @@ def save_transcript_evaluation(database_path, record, transcript_result):
 def wait_for_speech(database_path, record, speech_assessments, speech_summary, pending_turn_ids):
     """Persist component progress and release the attempt for a later POST retry."""
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+        begin_write(db)
+        row = lock_rows(db, 'SELECT record FROM session_evaluations WHERE session_id=?',
                          (record.session_id,)).fetchone()
         current = EvaluationResponse.model_validate_json(row[0]) if row else None
         if current is None or current.attempt_id != record.attempt_id or current.status != 'running':
@@ -156,8 +156,8 @@ def wait_for_speech(database_path, record, speech_assessments, speech_summary, p
 def finish_evaluation(database_path, record, result=None, error_code=None,
                       speech_assessments=None, speech_summary=None, failure_stage='final'):
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+        begin_write(db)
+        row = lock_rows(db, 'SELECT record FROM session_evaluations WHERE session_id=?',
                          (record.session_id,)).fetchone()
         current = EvaluationResponse.model_validate_json(row[0]) if row else None
         if current is None or current.attempt_id != record.attempt_id or current.status != 'running':
@@ -185,8 +185,8 @@ def finish_evaluation(database_path, record, result=None, error_code=None,
 def wait_for_transcript(database_path, record, total, completed):
     """Release a checkpointed attempt for the next POST; GET never advances work."""
     with database_connection(database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        row = db.execute('SELECT record FROM session_evaluations WHERE session_id=?',
+        begin_write(db)
+        row = lock_rows(db, 'SELECT record FROM session_evaluations WHERE session_id=?',
                          (record.session_id,)).fetchone()
         current = EvaluationResponse.model_validate_json(row[0]) if row else None
         if not current or current.attempt_id != record.attempt_id or current.status != 'running':

@@ -17,7 +17,7 @@ def get_data_status(settings: Settings, session_id: str, account_id: str,
             raise HTTPException(422, 'Upload manifest contains duplicate components.')
         manifest = UploadManifest.model_validate(manifest_from_sets(parts).model_dump())
     try:
-        outcome, result = session_data_status(settings.database_path, session_id, account_id, manifest)
+        outcome, result = session_data_status(settings.storage_path, session_id, account_id, manifest)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Session storage is unavailable.') from None
     errors = {

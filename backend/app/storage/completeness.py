@@ -1,6 +1,6 @@
 """Compare a declared final upload inventory with a consistent snapshot of stored data."""
 import sqlite3
-from app.storage.database import database_connection
+from app.storage.database import begin_write, database_connection, lock_rows, table_exists
 from app.storage.recordings import ensure_recording_table
 
 from app.schemas import SessionDataStatus, UploadInventory, UploadManifest
@@ -22,10 +22,10 @@ def manifest_from_sets(parts: tuple[set, set, set]) -> UploadInventory:
 def session_data_status(database_path: str, session_id: str, account_id: str, manifest: UploadManifest | None = None
                         ) -> tuple[str, SessionDataStatus | None]:
     with database_connection(database_path) as connection:
-        connection.execute('BEGIN IMMEDIATE')
+        begin_write(connection)
         if not migrate_session_lifecycle(connection):
             return 'not_found', None
-        row = connection.execute('SELECT status, upload_manifest FROM practice_sessions WHERE id=? AND owner_account_id=?',
+        row = lock_rows(connection, 'SELECT status, upload_manifest FROM practice_sessions WHERE id=? AND owner_account_id=?',
                                  (session_id, account_id)).fetchone()
         if row is None:
             return 'not_found', None
@@ -43,8 +43,7 @@ def session_data_status(database_path: str, session_id: str, account_id: str, ma
 
 def data_status_on_connection(connection, session_id, status, saved):
     actual = (set(), set(), set())
-    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if 'learner_turns' in tables:
+    if table_exists(connection, 'learner_turns'):
         ensure_recording_table(connection)
         for turn, audio, transcript in connection.execute(
             '''SELECT t.turn_id, t.audio IS NOT NULL OR r.object_key IS NOT NULL, t.transcript IS NOT NULL
@@ -56,7 +55,7 @@ def data_status_on_connection(connection, session_id, status, saved):
                 actual[0].add(turn)
             if transcript:
                 actual[1].add(turn)
-    if 'agent_transcripts' in tables:
+    if table_exists(connection, 'agent_transcripts'):
         actual[2].update(connection.execute(
             'SELECT item_id, content_index FROM agent_transcripts WHERE session_id=?', (session_id,)))
     expected = manifest_sets(UploadManifest.model_validate_json(saved)) if saved else (set(), set(), set())

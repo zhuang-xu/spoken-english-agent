@@ -7,7 +7,7 @@ See the [README](../README.md) for the class-by-class explanation.
 sequenceDiagram
     participant Client
     participant API as POST /sessions
-    participant DB as SQLite
+    participant DB as Relational storage
     participant Provider as Azure OpenAI Realtime
     Client->>API: Four practice preferences
     API->>DB: Save creating session
@@ -53,7 +53,7 @@ media and, through `browser/public/practice.mjs` and `browser/public/session.mjs
 requests session ending and upload finalization. See the
 [browser contract](browser-webrtc-api-contract.md) for lifecycle and tests.
 
-## Deferred features
+## Implemented capture and evaluation
 
 Learner recording and finalized transcript uploads are implemented. Agent transcript capture is also implemented.
 Evaluation is implemented through POST/GET `/sessions/{session_id}/evaluation` in
@@ -74,21 +74,56 @@ the browser advances these checkpoints automatically. The implementation lives i
 `backend/app/services/evaluation_batches.py`; context admission conservatively counts
 UTF-8 bytes with output and safety reserves rather than using an exact tokenizer.
 
-Retention of captured session data remains deferred: the inspected routes and storage
-in `backend/app/main.py` and `backend/app/storage/` provide no session-data purge
-workflow or age-based deletion policy. Inactivity expiry changes session status;
-it does not delete recordings or transcripts. Hosted authentication verification
-and edge limits remain release work. These implementation and test paths do not
-establish hosted verification.
+## Hosting and scaling limits
+
+- **Storage.** The East US Function App connects to PostgreSQL 16 in Central US
+  through Private Link with TLS hostname verification. PostgreSQL holds account,
+  session, transcript, and evaluation data. The private recording container holds
+  learner audio, and PostgreSQL stores its references. The live pool is capped at
+  one connection per worker. See the [hosted storage contract](hosted-storage-api-contract.md)
+  and [cutover record](releases/release-2026-11-11-postgres.md).
+- **Retention.** The backend has no age-based purge or user deletion workflow for
+  recordings, transcripts or reports. Inactivity expiry changes session status.
+  Deleting a practice in iOS removes local data, and forgetting a report in the
+  browser removes its local reference. Server retention, deletion, and how backups
+  and restores should handle deleted data remain undefined in the application.
+  See the [iOS design](ios-app-design.md) and [browser contract](browser-webrtc-api-contract.md).
+- **Background work and provider limits.** Speech and text evaluation each admit up to
+  two concurrent provider calls per application process. Text evaluation persists
+  checkpoints and uses shared leases to coordinate work for each session. Uploads
+  and the hosted timer can advance active sessions. The process limits add up across
+  workers. Speech has no durable cross-instance queue, and the application has no
+  shared provider concurrency limit across sessions. See the
+  [pronunciation](pronunciation-api-contract.md) and [evaluation](evaluation-api-contract.md) contracts.
+- **Evaluation quality.** The text evaluator validates structured output and checks
+  quotations against source text. Feedback quality on real learner recordings,
+  score consistency, and long-session latency and cost remain open. See the
+  [evaluation contract](evaluation-api-contract.md).
+
+## PostgreSQL transaction boundaries
+
+| Workflow | What the database coordinates |
+| --- | --- |
+| Accounts and session creation | A unique identity maps to one account. An account-scoped idempotency key reserves one session. Quota counters update atomically, and a rejected quota check rolls back all counters for that request. |
+| Session lifecycle and evidence | The session row lock coordinates uploads, ending, manifest checks, and final evaluation snapshot capture. Ownership checks run in the storage transaction. |
+| Recording registration and cleanup | Upload bytes before opening the registration transaction. Under the session row lock, recheck ownership and object presence before committing the reference. The orphan sweep takes the same lock and rechecks the reference before deleting. |
+| Evaluation jobs | The plan row lock coordinates a session's work claim and budget. Provider calls run outside the transaction. Attempt and lease tokens prevent stale work from overwriting newer results. |
+
+SQLite remains available for local development. The frozen hosted SQLite snapshot
+is the pre-cutover backup. Use the active PostgreSQL database for recording
+maintenance and preserve PostgreSQL writes during recovery. Production load and
+startup latency after cutover have yet to be measured. See the
+[hosted storage contract](hosted-storage-api-contract.md).
 
 
 ## Learner input storage
 
 The two PUT routes in `backend/app/main.py` accept a complete audio body or a finalized
 learner transcript. `backend/app/services/learner_inputs.py` maps persistence outcomes to
-HTTP receipts/errors. `store_learner_input()` uses a SQLite transaction with an
-immediate write lock to prevent concurrent uploads from losing components or
-creating duplicates. A failure rolls back the entire component write.
+HTTP receipts and errors. `store_learner_input()` locks the session row in
+PostgreSQL and uses an immediate transaction in SQLite. Concurrent uploads can
+commit distinct components without creating duplicates. A failure rolls back
+the entire component write.
 
 The `learner_turns` table stores transcript JSON and audio receipt metadata per
 `(session_id, turn_id)`. With object storage enabled, `learner_recordings` stores the
@@ -97,7 +132,7 @@ Audio capture then calls
 `assess_uploaded_audio()` synchronously through `backend/app/services/learner_inputs.py`;
 transcript capture does not call a provider. Uploads preserve session status and
 refresh activity only while active. Audio is bounded
-to 10 MiB while reading the request; SQLite work runs off the async event loop.
+to 10 MiB while reading the request, and database work runs off the async event loop.
 
 `browser/public/recorder.mjs` records learner microphone turns; callbacks in
 `browser/public/practice.mjs` connect recordings and provider events to
@@ -116,27 +151,26 @@ evaluation after saving a complete session. See
 
 `backend/app/services/agent_transcripts.py` validates playback metadata and coordinates
 `store_agent_transcript()`. The additive `agent_transcripts` table stores immutable
-content parts under `(session_id, item_id, content_index)`. SQLite serializes writes
-so duplicate concurrent uploads produce one row. Learner tables remain unchanged.
+content parts under `(session_id, item_id, content_index)`. Transactions serialize
+writes to the same session so duplicate concurrent uploads produce one row.
 
 Provider predecessor IDs and optional client playback offsets retain ordering
 context. Server receipt time is not chronological turn order. Ingestion accepts
 missing predecessors. `browser/public/session.mjs` uploads finalized
 `response.output_audio_transcript.done` events, deduplicates content identities,
 and reports playback as `unknown`; it does not supply predecessor IDs or playback
-offsets (`browser/tests/session.test.mjs`). Evaluation snapshots include stored
-agent parts ordered by item ID and content index in
-`backend/app/storage/evaluations.py`; this does not reconstruct chronological
-conversation order. Storage ordering metadata and retry behavior are covered by
+offsets (`browser/tests/session.test.mjs`). New evaluation snapshots combine learner
+turns and timed agent parts on the shared session clock. They keep untimed agent
+parts separately. Storage ordering metadata and retry behavior are covered by
 `backend/tests/test_agent_transcripts.py`.
 See [the agent-transcript contract](agent-transcripts-api-contract.md).
 
 ## Session ending
 
 `POST /sessions/{session_id}/end` calls `end_session()` and then
-`end_stored_session()` in `backend/app/storage/sqlite.py`. An immediate SQLite transaction serializes concurrent end
-requests, adds the `ended_at` column for older databases, and changes active to
-ended with a UTC timestamp and `end_reason='client_requested'`. Retries return the stored timestamp. Provider metadata
+`end_stored_session()` in `backend/app/storage/sqlite.py`. A transaction serializes
+concurrent end requests and changes active to ended with a UTC timestamp and
+`end_reason='client_requested'`. Retries return the stored timestamp. Provider metadata
 and captured inputs are preserved. Creating and failed sessions cannot be ended.
 
 Both capture helpers accept active and ended sessions to support delayed uploads.
@@ -163,7 +197,9 @@ and backfills older sessions from `created_at`. Old ended sessions receive the
 
 The Azure timer invokes `expire_inactive_sessions()` every minute with a five-minute
 threshold. Its database transaction serializes with heartbeats, ending, and uploads.
-Only active rows expire. Late uploads do not touch ended session metadata. Timer
+The timer ends inactive active sessions, fails stale creating sessions, and runs
+a bounded scan to advance incremental evaluation for active sessions. Late uploads
+do not touch ended session metadata. Timer
 storage failures propagate so the host records a failed invocation. Uvicorn alone
 does not execute the timer, and hosted cleanup requires a shared durable database.
 
@@ -186,7 +222,14 @@ it false again. See [the contract](session-recovery-and-completeness.md).
 tests live in `browser/public/` and `browser/tests/`. The optional `backend/web_app.py`
 wrapper serves those assets and mounts the API at `/`; omitting assets leaves the
 API available. Azure uses that wrapper to preserve the existing optional practice
-page. A future client in `mobile/` calls the same HTTP endpoints.
+page. The iOS client in `mobile/` calls the same HTTP endpoints. Each client owns
+its WebRTC connection, local recovery and report handling, so those flows need
+verification on both platforms.
+
+The deployed provider and hosting integrations use Azure OpenAI Realtime and text
+endpoints, Azure Speech, Azure Functions, PostgreSQL, and Blob recording storage. The session API
+passes the provider WebRTC URL and temporary credential to both clients. A provider
+change must account for credential issuance, SDP exchange and event compatibility.
 
 Python tests live in `backend/tests/`; root `pytest.ini` makes `app` imports resolve
 from `backend/`. The packaging script preserves Azure's required archive-root layout.

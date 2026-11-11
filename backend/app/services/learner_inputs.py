@@ -20,7 +20,7 @@ def capture_input(settings: Settings, session_id: str, turn_id: str, component: 
         recording_store = (RecordingStore(settings)
                            if component == 'audio' and settings.recordings_blob_container else None)
         outcome, audio_received, transcript_received = store_learner_input(
-            settings.database_path, session_id, turn_id, component, payload, account_id, media_type,
+            settings.storage_path, session_id, turn_id, component, payload, account_id, media_type,
             recording_store=recording_store,
         )
     except (sqlite3.Error, OSError):

@@ -14,7 +14,7 @@ from app.schemas import (BatchFindings, EvidenceSelection, EvaluationResult,
                          SessionAggregation)
 from app.services.evaluation_budget import ContextLimit, ProviderBusy, encoded, fits
 from app.services.evaluation_provider import _provider_result, provider_schema
-from app.storage.database import database_connection
+from app.storage.database import begin_write, database_connection, ensure_sqlite_table, lock_rows, table_exists
 
 VERSION = 'incremental-evidence-v1'
 TRIGGER_BYTES = 200_000
@@ -78,9 +78,9 @@ def digest(value):
 
 
 def tables(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS evaluation_batch_plans (
+    ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS evaluation_batch_plans (
         session_id TEXT PRIMARY KEY, config TEXT NOT NULL, calls INTEGER NOT NULL DEFAULT 0)''')
-    db.execute('''CREATE TABLE IF NOT EXISTS evaluation_batch_jobs (
+    ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS evaluation_batch_jobs (
         session_id TEXT NOT NULL, job_id TEXT NOT NULL, kind TEXT NOT NULL,
         payload TEXT NOT NULL, result TEXT, lease TEXT, leased_at REAL,
         failures INTEGER NOT NULL DEFAULT 0, error_code TEXT,
@@ -102,27 +102,28 @@ def configuration(settings):
 
 def plan_config(settings, sid):
     config = configuration(settings)
-    with database_connection(settings.database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
+    with database_connection(settings.storage_path) as db:
+        begin_write(db)
         tables(db)
-        db.execute('INSERT OR IGNORE INTO evaluation_batch_plans(session_id, config) VALUES (?, ?)',
+        db.execute('INSERT INTO evaluation_batch_plans(session_id, config) VALUES (?, ?) '
+                   'ON CONFLICT (session_id) DO NOTHING',
                    (sid, encoded(config)))
         return json.loads(db.execute('SELECT config FROM evaluation_batch_plans WHERE session_id=?',
                                     (sid,)).fetchone()[0])
 
 
 def live_source(settings, sid, account):
-    with database_connection(settings.database_path) as db:
-        row = db.execute('SELECT preferences, owner_account_id FROM practice_sessions WHERE id=?', (sid,)).fetchone()
+    with database_connection(settings.storage_path) as db:
+        row = lock_rows(db, 'SELECT preferences, owner_account_id FROM practice_sessions WHERE id=?', (sid,)).fetchone()
         if not row or row[1] != account:
             return None
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='session_evaluations'").fetchone():
+        if table_exists(db, 'session_evaluations'):
             if db.execute('SELECT 1 FROM session_evaluations WHERE session_id=?', (sid,)).fetchone():
                 return None  # Final reservation owns its immutable source now.
         learners = [dict(turn_id=t, **json.loads(s)) for t, s in db.execute(
             'SELECT turn_id, transcript FROM learner_turns WHERE session_id=? AND transcript IS NOT NULL', (sid,))]
         agents = []
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='agent_transcripts'").fetchone():
+        if table_exists(db, 'agent_transcripts'):
             agents = [dict(item_id=i, content_index=c, **json.loads(s)) for i, c, s in db.execute(
                 'SELECT item_id, content_index, transcript FROM agent_transcripts WHERE session_id=?', (sid,))]
         return {'preferences': json.loads(row[0]), 'learner_transcripts': learners, 'agent_transcripts': agents}
@@ -206,10 +207,12 @@ def job(settings, sid, config, kind, payload, instructions, model, retry=False):
     key = digest({'config': config, 'kind': kind, 'payload': payload,
                   'instructions': instructions, 'schema': provider_schema(model)})
     token = str(uuid4())
-    with database_connection(settings.database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
+    with database_connection(settings.storage_path) as db:
+        begin_write(db)
         tables(db)
-        db.execute('INSERT OR IGNORE INTO evaluation_batch_jobs(session_id, job_id, kind, payload) VALUES (?, ?, ?, ?)',
+        calls = lock_rows(db, 'SELECT calls FROM evaluation_batch_plans WHERE session_id=?', (sid,)).fetchone()[0]
+        db.execute('INSERT INTO evaluation_batch_jobs(session_id, job_id, kind, payload) VALUES (?, ?, ?, ?) '
+                   'ON CONFLICT (session_id, job_id) DO NOTHING',
                    (sid, key, kind, encoded(payload)))
         row = db.execute('SELECT result, lease, leased_at, failures FROM evaluation_batch_jobs WHERE session_id=? AND job_id=?',
                          (sid, key)).fetchone()
@@ -222,7 +225,6 @@ def job(settings, sid, config, kind, payload, instructions, model, retry=False):
         if db.execute('SELECT 1 FROM evaluation_batch_jobs WHERE session_id=? '
                       'AND lease IS NOT NULL AND leased_at>?', (sid, time.time() - 120)).fetchone():
             return None, False
-        calls = db.execute('SELECT calls FROM evaluation_batch_plans WHERE session_id=?', (sid,)).fetchone()[0]
         if calls >= MAX_CALLS:
             raise WorkLimit('evaluation_work_limit_exceeded')
         db.execute('UPDATE evaluation_batch_jobs SET lease=?, leased_at=? WHERE session_id=? AND job_id=?',
@@ -236,18 +238,21 @@ def job(settings, sid, config, kind, payload, instructions, model, retry=False):
         else:
             validate_selection(result, payload)
         value = result.model_dump(mode='json')
-        with database_connection(settings.database_path) as db:
+        with database_connection(settings.storage_path) as db:
             changed = db.execute('UPDATE evaluation_batch_jobs SET result=?, lease=NULL, error_code=NULL '
                 'WHERE session_id=? AND job_id=? AND lease=?', (encoded(value), sid, key, token)).rowcount
         return (value if changed else None), True
     except ProviderBusy:
-        with database_connection(settings.database_path) as db:
-            db.execute('UPDATE evaluation_batch_jobs SET lease=NULL WHERE session_id=? AND job_id=? AND lease=?',
-                       (sid, key, token))
-            db.execute('UPDATE evaluation_batch_plans SET calls=calls-1 WHERE session_id=?', (sid,))
+        with database_connection(settings.storage_path) as db:
+            begin_write(db)
+            lock_rows(db, 'SELECT calls FROM evaluation_batch_plans WHERE session_id=?', (sid,)).fetchone()
+            changed = db.execute('UPDATE evaluation_batch_jobs SET lease=NULL WHERE session_id=? AND job_id=? AND lease=?',
+                                 (sid, key, token)).rowcount
+            if changed:
+                db.execute('UPDATE evaluation_batch_plans SET calls=calls-1 WHERE session_id=?', (sid,))
         return None, False
     except Exception:
-        with database_connection(settings.database_path) as db:
+        with database_connection(settings.storage_path) as db:
             db.execute("UPDATE evaluation_batch_jobs SET lease=NULL, failures=failures+1, error_code='provider_failure' "
                        'WHERE session_id=? AND job_id=? AND lease=?', (sid, key, token))
         raise
@@ -398,22 +403,22 @@ def wake(settings, sid, account):
 
 def resume_pending(settings):
     """Hosted timer: bounded scan, no automatic retry of failed provider jobs."""
-    with database_connection(settings.database_path) as db:
+    with database_connection(settings.storage_path) as db:
         tables(db)
         sessions = db.execute('''SELECT s.id, s.owner_account_id FROM practice_sessions s
-            WHERE s.status='active' ORDER BY s.last_activity_at DESC LIMIT 8''').fetchall() if db.execute(
-                "SELECT 1 FROM sqlite_master WHERE name='practice_sessions'").fetchone() else []
+            WHERE s.status='active' ORDER BY s.last_activity_at DESC LIMIT 8''').fetchall() if table_exists(
+                db, 'practice_sessions') else []
     for sid, account in sessions:
         wake(settings, sid, account)
 
 
 def reserve_synthesis_call(settings, sid):
     """Count final synthesis attempts against an existing incremental work budget."""
-    with database_connection(settings.database_path) as db:
-        db.execute('BEGIN IMMEDIATE')
-        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='evaluation_batch_plans'").fetchone():
+    with database_connection(settings.storage_path) as db:
+        begin_write(db)
+        if not table_exists(db, 'evaluation_batch_plans'):
             return
-        row = db.execute('SELECT calls FROM evaluation_batch_plans WHERE session_id=?', (sid,)).fetchone()
+        row = lock_rows(db, 'SELECT calls FROM evaluation_batch_plans WHERE session_id=?', (sid,)).fetchone()
         if row is None:
             return
         if row[0] >= MAX_CALLS:

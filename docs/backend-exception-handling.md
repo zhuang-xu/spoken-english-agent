@@ -1,12 +1,13 @@
 # Backend exception handling: session start to end
 
-This document describes the failure cases handled by the current backend, how they
-are handled, and what clients should do next. It includes validation errors,
-provider/storage failures, retries, concurrency, and abandoned sessions.
+This is the original lifecycle failure analysis. It records validation errors,
+provider and storage failures, retries, concurrency, and abandoned sessions.
+For the current deployment, see the [architecture](architecture.md),
+[account isolation contract](account-isolation-api-contract.md), and
+[hosted storage contract](hosted-storage-api-contract.md).
 
-Implementation is local. Browser integration and deployment of the new lifecycle
-features remain pending. An `active` session means Azure credentials were prepared;
-it does not prove a browser has connected to Azure.
+An `active` session means Azure credentials were prepared. The client establishes
+the WebRTC connection separately.
 
 ## 1. Starting a session
 
@@ -167,8 +168,8 @@ the invocation is recorded as failed; later runs can process remaining stale row
 There is no custom cleanup-lag alert or independent fallback scheduler yet.
 
 The timer requires `AzureWebJobsStorage`. Plain Uvicorn does not execute Functions
-timer triggers. The current hosted `/tmp` SQLite file is instance-local, so reliable
-cleanup across multiple Azure instances requires a shared durable database.
+timer triggers. The hosted timer uses the same PostgreSQL database as the learner
+routes. During maintenance it pauses writes.
 
 Schema additions are transactional and additive. Existing sessions receive lifecycle
 columns, with activity backfilled from creation time. Consequently, an old active

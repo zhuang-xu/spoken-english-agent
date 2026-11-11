@@ -1,5 +1,5 @@
 """Retrieve immutable audio and cache normalized assessments without holding HTTP locks."""
-from app.storage.database import database_connection
+from app.storage.database import database_connection, ensure_sqlite_table
 from app.storage.recordings import Recording, ensure_recording_table
 import hashlib
 import sqlite3
@@ -26,14 +26,15 @@ def load_audio(database_path, session_id, reference, *, recording_store=None):
 
 def speech_cache(database_path, session_id, reference, assessment=None):
     with database_connection(database_path) as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS speech_assessments (
+        ensure_sqlite_table(db, '''CREATE TABLE IF NOT EXISTS speech_assessments (
             session_id TEXT NOT NULL, turn_id TEXT NOT NULL, audio_sha256 TEXT NOT NULL,
             version TEXT NOT NULL, result TEXT NOT NULL,
             PRIMARY KEY(session_id, turn_id, audio_sha256, version)
         )''')
         key = (session_id, reference['turn_id'], reference['sha256'], 'en-US-unscripted-v1')
         if assessment is not None:
-            db.execute('INSERT OR REPLACE INTO speech_assessments VALUES (?, ?, ?, ?, ?)',
+            db.execute('INSERT INTO speech_assessments VALUES (?, ?, ?, ?, ?) '
+                       'ON CONFLICT (session_id, turn_id, audio_sha256, version) DO UPDATE SET result=excluded.result',
                        (*key, assessment.model_dump_json()))
         row = db.execute('SELECT result FROM speech_assessments WHERE session_id=? AND turn_id=? '
                          'AND audio_sha256=? AND version=?', key).fetchone()

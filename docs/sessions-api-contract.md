@@ -76,7 +76,7 @@ These checks did not establish a browser WebRTC connection.
 - [x] Optional idempotency keys with credential-free replay.
 - [x] Recover stale creating rows and reject late activation.
 - [ ] Credential refresh/reconnection and provider call ID correlation.
-- [ ] Choose durable deployment storage; SQLite here is for local development.
+- [ ] Measure multi-instance load on [hosted PostgreSQL](hosted-storage-api-contract.md).
 
 Evaluation remains deferred. Session ending is implemented; see README.md. Learner recording
 uploads and finalized transcript storage are specified in the separate

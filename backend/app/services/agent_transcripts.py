@@ -20,7 +20,7 @@ def capture_agent_transcript(settings: Settings, session_id: str, item_id: str,
         raise HTTPException(422, "Provide paired, ordered playback offsets only for known playback.")
     try:
         outcome = store_agent_transcript(
-            settings.database_path, session_id, item_id, content_index, transcript.model_dump_json(), account_id
+            settings.storage_path, session_id, item_id, content_index, transcript.model_dump_json(), account_id
         )
     except (sqlite3.Error, OSError):
         raise HTTPException(503, "Agent transcript storage is unavailable.") from None

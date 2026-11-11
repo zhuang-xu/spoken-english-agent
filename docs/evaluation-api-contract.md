@@ -43,8 +43,9 @@ Provider diagnostics are never exposed.
 
 ## Snapshot and retries
 
-Readiness and snapshot capture occur in the same SQLite write transaction, reusing
-the completeness rules in [the completeness contract](session-recovery-and-completeness.md).
+Readiness and snapshot capture occur in the same transaction. PostgreSQL locks
+the session row during capture. SQLite uses an immediate write transaction. See
+the [completeness contract](session-recovery-and-completeness.md).
 Persist one immutable input snapshot per session, its SHA-256, rubric version and
 configured deployment. Snapshot includes preferences, manifest and learner/agent
 transcripts with IDs and timing/playback metadata plus audio hashes/references,

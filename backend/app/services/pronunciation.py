@@ -187,7 +187,7 @@ def assess_uploaded_audio(audio, media_type, session_id, turn_id, settings):
     reference = {'turn_id': turn_id, 'media_type': media_type, 'size_bytes': len(audio),
                  'sha256': hashlib.sha256(audio).hexdigest()}
     try:
-        saved = speech_cache(settings.database_path, session_id, reference)
+        saved = speech_cache(settings.storage_path, session_id, reference)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
     if saved is not None and saved.status != 'unavailable':
@@ -198,7 +198,7 @@ def assess_uploaded_audio(audio, media_type, session_id, turn_id, settings):
             turn_id=turn_id, audio_sha256=reference['sha256'], status='unavailable',
             reason='not_configured')
         try:
-            return speech_cache(settings.database_path, session_id, reference, assessment)
+            return speech_cache(settings.storage_path, session_id, reference, assessment)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
 
@@ -234,7 +234,7 @@ def assess_uploaded_audio(audio, media_type, session_id, turn_id, settings):
                 turn_id=turn_id, audio_sha256=reference['sha256'], status='unavailable',
                 reason='provider_unavailable', duration_ms=duration_ms)
     try:
-        return speech_cache(settings.database_path, session_id, reference, assessment)
+        return speech_cache(settings.storage_path, session_id, reference, assessment)
     except (sqlite3.Error, OSError):
         raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
 
@@ -245,7 +245,7 @@ def snapshot_assessment_state(snapshot, session_id, settings):
     pending = []
     for reference in json.loads(snapshot).get('audio_references', []):
         try:
-            saved = speech_cache(settings.database_path, session_id, reference)
+            saved = speech_cache(settings.storage_path, session_id, reference)
         except (sqlite3.Error, OSError):
             raise HTTPException(503, 'Speech assessment storage is unavailable.') from None
         if saved is None:
